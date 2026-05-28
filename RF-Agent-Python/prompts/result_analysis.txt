@@ -1,0 +1,4 @@
+Training feedback is summarized as metric curves and summary statistics.
+Higher task score is better unless the task config says otherwise.
+Use failures, constraint violations, instability, and weak final scores to diagnose reward issues.
+

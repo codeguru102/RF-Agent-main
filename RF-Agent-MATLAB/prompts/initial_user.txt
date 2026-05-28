@@ -1,0 +1,14 @@
+Task:
+{task_description}
+
+Reward signature:
+{reward_signature}
+
+Available variables:
+{available_variables}
+
+Optimization target:
+{score_description}
+
+Write a new reward candidate.
+

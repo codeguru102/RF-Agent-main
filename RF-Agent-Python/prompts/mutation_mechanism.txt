@@ -1,0 +1,13 @@
+Improve the reward by changing the reward mechanism, not only numeric weights.
+
+Parent design thought:
+{design_thought}
+
+Parent reward:
+{reward_function}
+
+Parent training feedback:
+{trained_results}
+
+Focus on adding, removing, or restructuring reward components that can improve learning.
+

@@ -1,0 +1,8 @@
+Output exactly one JSON object:
+{
+  "design_thought": "short explanation of the reward design",
+  "reward_code": "complete MATLAB function code"
+}
+
+The MATLAB code must be self-contained and must not call unavailable helper functions.
+

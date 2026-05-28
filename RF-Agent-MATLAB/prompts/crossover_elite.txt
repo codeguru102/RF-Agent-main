@@ -1,0 +1,7 @@
+Create a new reward by combining useful ideas from these strong previous candidates.
+
+Candidate group:
+{reward_func_group}
+
+Use the best components, avoid contradictory terms, and keep the final reward simple enough for stable training.
+

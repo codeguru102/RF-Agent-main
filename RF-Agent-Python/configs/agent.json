@@ -1,0 +1,20 @@
+{
+  "model": "gpt-4o-mini",
+  "temperature": 1.0,
+  "initial_size": 6,
+  "elite_max_length": 10,
+  "elite_control_num": 4,
+  "tree_reasoning_max_length": 4,
+  "different_thought_max_control_num": 4,
+  "c_param_init": 0.4,
+  "c_param_final": 0.1,
+  "dummy_failure": -10000.0,
+  "action_weights": {
+    "mutation_mechanism": 2,
+    "mutation_param": 2,
+    "crossover_elite": 2,
+    "tree_reasoning": 1,
+    "different_thought": 1
+  }
+}
+

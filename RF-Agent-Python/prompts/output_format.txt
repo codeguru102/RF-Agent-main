@@ -1,0 +1,8 @@
+Output exactly one JSON object:
+{
+  "design_thought": "short explanation of the reward design",
+  "reward_code": "complete Python function code"
+}
+
+The Python code must define compute_reward and must be self-contained.
+Do not import unavailable project-specific helpers.

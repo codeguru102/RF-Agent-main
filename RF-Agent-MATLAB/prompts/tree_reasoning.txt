@@ -1,0 +1,7 @@
+Review this path of reward candidates from the search tree and produce a better next reward.
+
+Tree path:
+{reward_func_group}
+
+Preserve changes that improved the score and correct changes that harmed the score.
+
