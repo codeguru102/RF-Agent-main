@@ -1,13 +1,20 @@
 {
   "model": "gpt-4o-mini",
   "temperature": 1.0,
+  "simulations": 80,
   "initial_size": 6,
+  "tree_max_depth": 16,
   "elite_max_length": 10,
   "elite_control_num": 4,
+  "dashboard_elite_max": 4,
   "tree_reasoning_max_length": 4,
   "different_thought_max_control_num": 4,
+  "elite_weight_bias": 1.0,
   "c_param_init": 0.4,
   "c_param_final": 0.1,
+  "max_try_num": 9,
+  "max_same_try_cnt": 3,
+  "enable_self_verify": true,
   "dummy_failure": -10000.0,
   "action_weights": {
     "mutation_mechanism": 2,
@@ -17,4 +24,3 @@
     "different_thought": 1
   }
 }
-

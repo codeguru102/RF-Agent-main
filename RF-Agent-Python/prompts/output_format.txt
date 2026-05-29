@@ -6,3 +6,4 @@ Output exactly one JSON object:
 
 The Python code must define compute_reward and must be self-contained.
 Do not import unavailable project-specific helpers.
+The generated candidate will be saved as reward_fcn.py.

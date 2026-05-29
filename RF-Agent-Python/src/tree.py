@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from candidate_store import Candidate
@@ -33,14 +34,32 @@ class SearchNode:
         return self.metadata.get("action_index")
 
     @property
+    def self_verify_score(self):
+        try:
+            return float(self.metadata.get("self_verify_score", 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    @property
     def is_trained(self):
         return self.candidate.is_trained if self.candidate else False
 
 
 class SearchTree:
-    def __init__(self, candidates: List[Candidate], log_reader: PythonLogReader, dummy_failure: float):
+    def __init__(
+        self,
+        candidates: List[Candidate],
+        log_reader: PythonLogReader,
+        dummy_failure: float,
+        max_simulations: Optional[int] = None,
+    ):
         self.log_reader = log_reader
         self.dummy_failure = dummy_failure
+        self.update_best_child_gamma = 0.7
+        self.update_mean_gamma = 0.15
+        self.max_simulations = max_simulations
+        self.min_q = 0.0
+        self.max_q = 0.0
         self.root = SearchNode(candidate=None, candidate_id="root", parent_id=None, reward_cur=dummy_failure)
         self.nodes: Dict[str, SearchNode] = {"root": self.root}
         self._build(candidates)
@@ -75,34 +94,53 @@ class SearchTree:
         for node in self.nodes.values():
             node.visits = 0
             node.total_reward = 0.0
-            node.q_value = node.reward_cur
+            node.q_value = 0.0
 
-        for node in self.nodes.values():
-            if node is self.root or not node.is_trained:
-                continue
+        self.min_q = 0.0
+        self.max_q = 0.0
+        trained = sorted(self.trained_nodes(), key=self._replay_sort_key)
+        max_simulations = self.max_simulations or max(len(trained), 1)
+
+        for sim_index, node in enumerate(trained, start=1):
             reward = node.reward_cur
-            cur = node
-            while cur is not None:
-                cur.visits += 1
-                cur.total_reward += reward
-                parent_id = cur.parent_id or "root"
-                cur = self.nodes.get(parent_id) if cur.candidate_id != "root" else None
+            self._backpropagate_result(node, reward, sim_index, max_simulations)
 
-        self._update_q_values(self.root)
+    def _backpropagate_result(self, node: SearchNode, reward: float, sim_index: int, max_simulations: int):
+        node.reward_cur = reward
+        node.q_value = reward
+        node.visits += 1
+        node.total_reward += reward
+        self.min_q = min(self.min_q, node.q_value)
+        self.max_q = max(self.max_q, node.q_value)
 
-    def _update_q_values(self, node: SearchNode) -> float:
-        child_values = [self._update_q_values(child) for child in node.children]
-        if node.is_trained:
-            own_value = node.reward_cur
-        elif node.visits > 0:
-            own_value = node.total_reward / node.visits
-        else:
-            own_value = self.dummy_failure
-        if child_values:
-            node.q_value = max([own_value] + child_values)
-        else:
-            node.q_value = own_value
-        return node.q_value
+        parent = self.nodes.get(node.parent_id or "root")
+        while parent and parent is not self.root:
+            parent.visits += 1
+            parent.total_reward += reward
+            q_mean_value = parent.total_reward / parent.visits
+            trained_child_qs = [child.q_value for child in parent.children if child.is_trained or child.visits > 0]
+            best_child_q = max(trained_child_qs) if trained_child_qs else 0.0
+            decay = max(0.0, 1.0 - float(sim_index / max(max_simulations, 1)))
+            update_mean_gamma = self.update_mean_gamma * decay
+            parent.q_value = (
+                (1.0 - self.update_best_child_gamma - update_mean_gamma) * parent.q_value
+                + self.update_best_child_gamma * best_child_q
+                + update_mean_gamma * q_mean_value
+            )
+            parent = self.nodes.get(parent.parent_id or "root")
+
+        self.root.visits += 1
+
+    def _replay_sort_key(self, node: SearchNode):
+        status = node.candidate.status if node.candidate else {}
+        metadata = node.metadata
+        timestamp = (
+            status.get("updated_at")
+            or metadata.get("trained_at")
+            or metadata.get("created_at")
+            or ""
+        )
+        return (_parse_timestamp(timestamp), node.candidate_id)
 
     def trained_nodes(self) -> List[SearchNode]:
         return [node for node in self.nodes.values() if node is not self.root and node.is_trained]
@@ -117,6 +155,19 @@ class SearchTree:
         nodes = self.trained_nodes()
         return sorted(nodes, key=lambda node: node.reward_cur, reverse=True)[:limit]
 
+    def elite_set_nodes(self, elite_ids: List[str], limit: Optional[int] = None) -> List[SearchNode]:
+        nodes = [
+            self.nodes[candidate_id]
+            for candidate_id in elite_ids
+            if candidate_id in self.nodes and self.nodes[candidate_id].is_trained
+        ]
+        nodes = sorted(nodes, key=lambda node: node.reward_cur, reverse=True)
+        return nodes[:limit] if limit is not None else nodes
+
+    def best_node(self) -> Optional[SearchNode]:
+        elites = self.elite_nodes(1)
+        return elites[0] if elites else None
+
     def path_to_root(self, node: SearchNode) -> List[SearchNode]:
         path = []
         cur = node
@@ -125,7 +176,7 @@ class SearchTree:
             cur = self.nodes.get(cur.parent_id or "root")
         return list(reversed(path))
 
-    def branch_excluding(self, node: SearchNode) -> List[SearchNode]:
+    def branch_excluding(self, node: SearchNode, randomize: bool = False, rng=None) -> List[SearchNode]:
         root_child = node
         while root_child.parent_id and root_child.parent_id != "root":
             root_child = self.nodes.get(root_child.parent_id, root_child)
@@ -134,7 +185,17 @@ class SearchTree:
         for child in self.root.children:
             if child.candidate_id == excluded:
                 continue
-            result.extend(self._collect_trained(child))
+            branch_nodes = self._collect_trained(child)
+            if randomize and branch_nodes:
+                max_depth = max(item.depth for item in branch_nodes)
+                target_depth = rng.randint(child.depth, max_depth) if rng else child.depth
+                depth_nodes = [item for item in branch_nodes if item.depth <= target_depth]
+                result.append(max(depth_nodes, key=lambda item: item.reward_cur))
+            else:
+                result.extend(branch_nodes)
+        if randomize and rng:
+            rng.shuffle(result)
+            return result
         return sorted(result, key=lambda item: item.reward_cur, reverse=True)
 
     def _collect_trained(self, node: SearchNode) -> List[SearchNode]:
@@ -144,16 +205,40 @@ class SearchTree:
         return result
 
     def min_max_q(self):
-        trained = self.trained_nodes()
-        if not trained:
-            return 0.0, 1.0
-        values = [node.q_value for node in trained]
-        return min(values), max(values)
+        return self.min_q, self.max_q
 
     def uct_score(self, node: SearchNode, c_param: float) -> float:
         q_min, q_max = self.min_max_q()
         eps = 1e-8
         q_norm = (node.q_value - q_min) / (q_max - q_min + eps)
         parent = self.nodes.get(node.parent_id or "root", self.root)
-        visit_part = math.sqrt(2.0 * math.log(parent.visits + 1.0) / (node.visits + 1.0))
-        return q_norm + c_param * visit_part
+        visit_part = math.sqrt(2.0 * math.log(parent.visits + 1.0) / max(node.visits, eps))
+        verify_part = self._self_verify_softmax(node, parent)
+        return q_norm + c_param * visit_part + c_param * verify_part
+
+    def selectable_children(self, node: SearchNode) -> List[SearchNode]:
+        return [child for child in node.children if child.is_trained]
+
+    def _self_verify_softmax(self, node: SearchNode, parent: SearchNode) -> float:
+        siblings = [child for child in parent.children if child.is_trained]
+        if not siblings:
+            return 0.0
+        scores = [child.self_verify_score for child in siblings]
+        max_score = max(scores)
+        exp_scores = [math.exp(score - max_score) for score in scores]
+        total = sum(exp_scores)
+        if total <= 0:
+            return 0.0
+        for sibling, exp_score in zip(siblings, exp_scores):
+            if sibling is node:
+                return exp_score / total
+        return 0.0
+
+
+def _parse_timestamp(value: str) -> datetime:
+    if not value:
+        return datetime.min
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return datetime.min

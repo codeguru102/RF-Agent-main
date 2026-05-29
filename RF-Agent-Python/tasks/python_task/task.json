@@ -1,0 +1,28 @@
+{
+  "task_name": "python_task",
+  "description": "Describe the Python-trained RL control task here.",
+  "reward_language": "python",
+  "reward_function_name": "compute_reward",
+  "reward_file": "reward_fcn.py",
+  "reward_signature": "def compute_reward(obs, action, next_obs, info):",
+  "available_variables": [
+    "obs['position_error']",
+    "obs['velocity_error']",
+    "action['motor_torque']",
+    "next_obs['position_error']",
+    "next_obs['velocity_error']",
+    "info['constraint_violation']",
+    "info['success']"
+  ],
+  "score": {
+    "primary": "max_task_score",
+    "maximize": true,
+    "penalties": [
+      {
+        "field": "constraint_violation",
+        "weight": 0.0
+      }
+    ]
+  }
+}
+

@@ -23,12 +23,18 @@ class LLMClient:
             from openai import OpenAI
 
             client = OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-            )
-            return response.choices[0].message.content
+            for attempt in range(20):
+                try:
+                    response = client.chat.completions.create(
+                        model=self.model,
+                        messages=messages,
+                        temperature=self.temperature,
+                    )
+                    return response.choices[0].message.content
+                except Exception:
+                    if attempt == 19:
+                        raise
+                    time.sleep(1)
         except ImportError:
             import openai
 

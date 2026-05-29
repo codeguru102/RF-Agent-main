@@ -1,0 +1,84 @@
+[
+  {
+    "candidate_id": "candidate_000010",
+    "parent_id": "candidate_000001",
+    "action_type": "mutation_param",
+    "action_index": 1,
+    "source_node_ids": [
+      "candidate_000001"
+    ],
+    "selection_c_param": 0.13,
+    "parent_uct_at_selection": 1.1464283402770477,
+    "selected_tree_node_id": "candidate_000001",
+    "selection_path": [
+      {
+        "node_id": "root",
+        "uct_score": null,
+        "reason": "start"
+      },
+      {
+        "node_id": "candidate_000001",
+        "uct_score": 1.1464283402770477,
+        "reason": "max UCT child"
+      }
+    ],
+    "self_verify_score": 0.0,
+    "validation_attempts": 1
+  },
+  {
+    "candidate_id": "candidate_000011",
+    "parent_id": "candidate_000001",
+    "action_type": "crossover_elite",
+    "action_index": 0,
+    "source_node_ids": [
+      "candidate_000001",
+      "candidate_000002",
+      "candidate_000003"
+    ],
+    "selection_c_param": 0.13,
+    "parent_uct_at_selection": 1.1464283402770477,
+    "selected_tree_node_id": "candidate_000001",
+    "selection_path": [
+      {
+        "node_id": "root",
+        "uct_score": null,
+        "reason": "start"
+      },
+      {
+        "node_id": "candidate_000001",
+        "uct_score": 1.1464283402770477,
+        "reason": "max UCT child"
+      }
+    ],
+    "self_verify_score": 0.0,
+    "validation_attempts": 1
+  },
+  {
+    "candidate_id": "candidate_000012",
+    "parent_id": "candidate_000001",
+    "action_type": "crossover_elite",
+    "action_index": 1,
+    "source_node_ids": [
+      "candidate_000001",
+      "candidate_000002",
+      "candidate_000003"
+    ],
+    "selection_c_param": 0.13,
+    "parent_uct_at_selection": 1.1464283402770477,
+    "selected_tree_node_id": "candidate_000001",
+    "selection_path": [
+      {
+        "node_id": "root",
+        "uct_score": null,
+        "reason": "start"
+      },
+      {
+        "node_id": "candidate_000001",
+        "uct_score": 1.1464283402770477,
+        "reason": "max UCT child"
+      }
+    ],
+    "self_verify_score": 0.0,
+    "validation_attempts": 1
+  }
+]

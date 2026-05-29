@@ -1,0 +1,14 @@
+{
+  "candidate_id": "candidate_000001",
+  "parent_id": null,
+  "action_type": "initialize",
+  "action_index": 0,
+  "generation": 0,
+  "created_at": "2026-05-28T19:07:27.934396+00:00",
+  "created_by": "rf-agent-python",
+  "reward_language": "python",
+  "reward_file": "reward_fcn.py",
+  "design_thought": "Dry-run reward: penalize tracking errors, control effort, and constraint violations while adding a success bonus.",
+  "source_node_ids": [],
+  "status": "trained"
+}

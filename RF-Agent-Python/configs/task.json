@@ -3,6 +3,7 @@
   "description": "Describe the Python-trained control task here.",
   "reward_language": "python",
   "reward_function_name": "compute_reward",
+  "reward_file": "reward_fcn.py",
   "reward_signature": "def compute_reward(obs, action, next_obs, info):",
   "available_variables": [
     "obs['position_error']",
@@ -23,4 +24,3 @@
     ]
   }
 }
-
