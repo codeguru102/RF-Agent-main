@@ -16,7 +16,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Offline RF-Agent for MATLAB training logs.")
     parser.add_argument("--mode", choices=["inspect", "generate"], default="inspect")
     parser.add_argument("--num-candidates", type=int, default=4)
-    parser.add_argument("--task-config", default="configs/task.json")
     parser.add_argument("--agent-config", default="configs/agent.json")
     parser.add_argument("--experiments-dir", default="experiments")
     parser.add_argument("--prompt-dir", default="prompts")

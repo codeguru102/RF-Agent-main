@@ -133,6 +133,16 @@ class OfflineRFAgent:
         path = [{"node_id": "root", "uct_score": None, "reason": "start"}]
         max_depth = int(self.agent_config.get("tree_max_depth", 16))
         while node.depth < max_depth:
+            if node is not self.tree.root and node.children and self._available_actions(node):
+                path.append(
+                    {
+                        "node_id": node.candidate_id,
+                        "uct_score": self.tree.uct_score(node, c_param),
+                        "reason": "complete partial expansion bundle",
+                    }
+                )
+                break
+
             selectable_children = self.tree.selectable_children(node)
             if not selectable_children:
                 break
@@ -148,9 +158,6 @@ class OfflineRFAgent:
             )
             node = best_child
 
-            if self._available_actions(node):
-                break
-
         if node is self.tree.root:
             elites = self.tree.elite_nodes(1)
             if not elites:
@@ -165,6 +172,13 @@ class OfflineRFAgent:
             )
 
         if not self._available_actions(node):
+            pending_children = [child for child in node.children if child.candidate and child.candidate.is_pending]
+            if pending_children:
+                pending_ids = ", ".join(child.candidate_id for child in pending_children)
+                raise RuntimeError(
+                    f"Selected node {node.candidate_id} already has a full pending expansion bundle. "
+                    f"Train these candidates before expanding deeper: {pending_ids}"
+                )
             expandable = [candidate for candidate in self.tree.trained_nodes() if self._available_actions(candidate)]
             if not expandable:
                 raise RuntimeError("All trained nodes are fully expanded. Increase action weights or generate new initial candidates.")
@@ -184,16 +198,16 @@ class OfflineRFAgent:
         initial_size = int(self.agent_config.get("initial_size", 6))
         if parent is None:
             root_initial_count = sum(1 for child in self.tree.root.children if child.action_type == "initialize")
-            count = max(min(num_candidates, initial_size - root_initial_count), 0)
-            return [("initialize", root_initial_count + index, []) for index in range(count)]
+            actions = [("initialize", root_initial_count + index, []) for index in range(initial_size - root_initial_count)]
+            return self._maybe_cap_action_plan(actions, num_candidates)
 
         actions = self._available_actions(parent)
         if not actions:
             raise RuntimeError(f"Selected node {parent.candidate_id} has no available expansion actions.")
         planned = []
-        for action_type, action_index in actions[:num_candidates]:
+        for action_type, action_index in actions:
             planned.append((action_type, action_index, self._source_nodes_for_action(parent, action_type)))
-        return planned
+        return self._maybe_cap_action_plan(planned, num_candidates)
 
     def _current_c_param(self) -> float:
         progress = len(self.tree.trained_nodes()) / max(len(self.tree.nodes), 1)
@@ -202,16 +216,17 @@ class OfflineRFAgent:
         return (c_param_init - c_param_final) * (1.0 - progress) + c_param_final
 
     def _available_actions(self, parent: SearchNode) -> List[Tuple[str, int]]:
-        used = {}
+        used = set()
         for child in parent.children:
-            key = child.action_type
-            used[key] = max(used.get(key, -1), int(child.action_index or 0))
+            if child.action_type is None:
+                continue
+            used.add((child.action_type, int(child.action_index or 0)))
 
         actions = []
         for action_type in ACTION_ORDER:
             max_count = int(self.action_weights.get(action_type, 1))
             for action_index in range(max_count):
-                if used.get(action_type, -1) < action_index:
+                if (action_type, action_index) not in used:
                     actions.append((action_type, action_index))
         return actions
 
@@ -323,7 +338,10 @@ class OfflineRFAgent:
             if same_try_cnt >= self.max_same_try_cnt:
                 current_messages = list(messages)
                 same_try_cnt = 0
-
+            
+            print("##################################")
+            print(current_messages)
+            print("##################################")
             response = self.llm_client.complete(current_messages)
             last_response = response
             design_thought, reward_code = parse_reward_response(response)
@@ -423,3 +441,12 @@ class OfflineRFAgent:
         max_length = int(self.agent_config.get("elite_max_length", 10))
         elite_nodes = sorted(elite_nodes, key=lambda node: node.reward_cur, reverse=True)[:max_length]
         self.store.save_elite_ids(node.candidate_id for node in elite_nodes)
+
+    def _maybe_cap_action_plan(
+        self,
+        action_plan: List[Tuple[str, int, List[SearchNode]]],
+        num_candidates: int,
+    ) -> List[Tuple[str, int, List[SearchNode]]]:
+        if num_candidates and num_candidates > 0:
+            return action_plan[:num_candidates]
+        return action_plan

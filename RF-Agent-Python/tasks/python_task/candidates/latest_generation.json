@@ -1,43 +1,15 @@
 [
   {
-    "candidate_id": "candidate_000010",
-    "parent_id": "candidate_000001",
-    "action_type": "mutation_param",
-    "action_index": 1,
-    "source_node_ids": [
-      "candidate_000001"
-    ],
-    "selection_c_param": 0.13,
-    "parent_uct_at_selection": 1.1464283402770477,
-    "selected_tree_node_id": "candidate_000001",
-    "selection_path": [
-      {
-        "node_id": "root",
-        "uct_score": null,
-        "reason": "start"
-      },
-      {
-        "node_id": "candidate_000001",
-        "uct_score": 1.1464283402770477,
-        "reason": "max UCT child"
-      }
-    ],
-    "self_verify_score": 0.0,
-    "validation_attempts": 1
-  },
-  {
-    "candidate_id": "candidate_000011",
-    "parent_id": "candidate_000001",
-    "action_type": "crossover_elite",
+    "candidate_id": "candidate_000025",
+    "parent_id": "candidate_000003",
+    "action_type": "tree_reasoning",
     "action_index": 0,
     "source_node_ids": [
-      "candidate_000001",
-      "candidate_000002",
       "candidate_000003"
     ],
-    "selection_c_param": 0.13,
-    "parent_uct_at_selection": 1.1464283402770477,
-    "selected_tree_node_id": "candidate_000001",
+    "selection_c_param": 0.22000000000000003,
+    "parent_uct_at_selection": 0.6649763296865673,
+    "selected_tree_node_id": "candidate_000003",
     "selection_path": [
       {
         "node_id": "root",
@@ -45,27 +17,33 @@
         "reason": "start"
       },
       {
-        "node_id": "candidate_000001",
-        "uct_score": 1.1464283402770477,
+        "node_id": "candidate_000003",
+        "uct_score": 0.6649763296865673,
         "reason": "max UCT child"
+      },
+      {
+        "node_id": "candidate_000003",
+        "uct_score": 0.6649763296865673,
+        "reason": "complete partial expansion bundle"
       }
     ],
     "self_verify_score": 0.0,
     "validation_attempts": 1
   },
   {
-    "candidate_id": "candidate_000012",
-    "parent_id": "candidate_000001",
-    "action_type": "crossover_elite",
-    "action_index": 1,
+    "candidate_id": "candidate_000026",
+    "parent_id": "candidate_000003",
+    "action_type": "different_thought",
+    "action_index": 0,
     "source_node_ids": [
-      "candidate_000001",
+      "candidate_000003",
       "candidate_000002",
-      "candidate_000003"
+      "candidate_000001",
+      "candidate_000004"
     ],
-    "selection_c_param": 0.13,
-    "parent_uct_at_selection": 1.1464283402770477,
-    "selected_tree_node_id": "candidate_000001",
+    "selection_c_param": 0.22000000000000003,
+    "parent_uct_at_selection": 0.6649763296865673,
+    "selected_tree_node_id": "candidate_000003",
     "selection_path": [
       {
         "node_id": "root",
@@ -73,9 +51,14 @@
         "reason": "start"
       },
       {
-        "node_id": "candidate_000001",
-        "uct_score": 1.1464283402770477,
+        "node_id": "candidate_000003",
+        "uct_score": 0.6649763296865673,
         "reason": "max UCT child"
+      },
+      {
+        "node_id": "candidate_000003",
+        "uct_score": 0.6649763296865673,
+        "reason": "complete partial expansion bundle"
       }
     ],
     "self_verify_score": 0.0,

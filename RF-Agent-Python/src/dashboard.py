@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import textwrap
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -13,12 +12,22 @@ from task_loader import load_task_folder
 from tree import SearchNode, SearchTree
 
 
-NODE_WIDTH = 250
-NODE_HEIGHT = 132
-X_GAP = 46
-Y_GAP = 84
+NODE_WIDTH = 286
+NODE_HEIGHT = 124
+X_GAP = 54
+Y_GAP = 76
 MARGIN_X = 40
 MARGIN_Y = 40
+NODE_TEXT_LIMIT = 36
+
+ACTION_LABELS = {
+    "initialize": "init",
+    "mutation_mechanism": "mut-mech",
+    "mutation_param": "mut-param",
+    "crossover_elite": "cross-elite",
+    "tree_reasoning": "tree-reason",
+    "different_thought": "diff-thought",
+}
 
 
 def render_dashboard_for_task(
@@ -127,7 +136,6 @@ def render_dashboard(
         elite_ids=elite_ids,
         pending_ids=pending_ids,
         best_node_id=best_node_id,
-        elite_display_nodes=elite_display_nodes,
         show_window=show_window,
     )
     return {"json": json_path, "png": figure_path}
@@ -145,7 +153,6 @@ def draw_matplotlib_dashboard(
     elite_ids: Iterable[str],
     pending_ids: Iterable[str],
     best_node_id: Optional[str],
-    elite_display_nodes: List[SearchNode],
     show_window: bool,
 ):
     if not show_window or os.getenv("RF_AGENT_NO_DASHBOARD") == "1":
@@ -160,15 +167,15 @@ def draw_matplotlib_dashboard(
     max_x = max((x + NODE_WIDTH for x, _ in positions.values()), default=NODE_WIDTH)
     max_y = max((y + NODE_HEIGHT for _, y in positions.values()), default=NODE_HEIGHT)
 
-    fig = plt.figure(figsize=(17, 9), constrained_layout=True)
+    figure_width = max(14, min(34, (max_x + 180) / 150))
+    figure_height = max(8, min(24, (max_y + 140) / 145))
+    fig = plt.figure(figsize=(figure_width, figure_height), constrained_layout=True)
     fig.canvas.manager.set_window_title(f"RF-Agent Dashboard - {task_name}")
-    gs = fig.add_gridspec(1, 2, width_ratios=[2.2, 1.0])
-    ax_tree = fig.add_subplot(gs[0, 0])
-    ax_info = fig.add_subplot(gs[0, 1])
+    ax_tree = fig.add_subplot(1, 1, 1)
 
     ax_tree.set_title(f"Search Tree: {task_name}", fontsize=14, fontweight="bold")
     ax_tree.set_xlim(-40, max_x + 80)
-    ax_tree.set_ylim(max_y + 180, -40)
+    ax_tree.set_ylim(max_y + 120, -40)
     ax_tree.axis("off")
 
     for parent in tree.nodes.values():
@@ -190,8 +197,7 @@ def draw_matplotlib_dashboard(
             FancyBboxPatch,
         )
 
-    draw_info_panel(ax_info, tree, task_name, c_param, latest_decisions, best_node_id, elite_display_nodes)
-    fig.savefig(figure_path, dpi=160)
+    fig.savefig(figure_path, dpi=180)
     if show_window and os.getenv("RF_AGENT_NO_DASHBOARD") != "1":
         plt.show(block=True)
     else:
@@ -291,7 +297,7 @@ def draw_node(
     x, y = position
     status = node_status(node)
     fill = status_fill(status)
-    edge = "#475569"
+    edge = "#64748b"
     width = 1.2
     if node.candidate_id in selected_update_ids:
         edge = "#2563eb"
@@ -316,19 +322,35 @@ def draw_node(
     score = "n/a" if node.candidate_id == "root" else f"{node.reward_cur:.3f}"
     q_value = "n/a" if node.candidate_id == "root" else f"{node.q_value:.3f}"
     uct_text = "n/a" if uct is None else f"{uct:.3f}"
-    action = node.action_type or "root"
+    action = format_action(node.action_type, node.action_index)
 
     lines = [
         node.candidate_id,
-        f"status: {status}",
-        f"action: {action}",
+        f"{status} | {action}",
         f"score: {score}  Q: {q_value}",
         f"UCT: {uct_text}  verify: {node.self_verify_score:.2f}",
-        f"parent: {node.parent_id or '-'}",
+        f"parent: {short_id(node.parent_id)}  visits: {node.visits}",
     ]
-    ax.text(x + 10, y + 18, lines[0], fontsize=9, fontweight="bold", va="top", zorder=3)
+    ax.text(
+        x + 12,
+        y + 18,
+        ellipsize(lines[0], NODE_TEXT_LIMIT),
+        fontsize=9,
+        fontweight="bold",
+        va="top",
+        zorder=3,
+        clip_on=True,
+    )
     for idx, line in enumerate(lines[1:], start=1):
-        ax.text(x + 10, y + 18 + idx * 18, line, fontsize=8, va="top", zorder=3)
+        ax.text(
+            x + 12,
+            y + 18 + idx * 19,
+            ellipsize(line, NODE_TEXT_LIMIT),
+            fontsize=8,
+            va="top",
+            zorder=3,
+            clip_on=True,
+        )
 
     badges = []
     if node.candidate_id == best_node_id:
@@ -355,82 +377,6 @@ def draw_node(
         ax.text(x + NODE_WIDTH - 36, by + 8, label, fontsize=7, color=text_color, fontweight="bold", ha="center", va="center", zorder=5)
 
 
-def draw_info_panel(
-    ax,
-    tree: SearchTree,
-    task_name: str,
-    c_param: float,
-    latest_decisions: List[dict],
-    best_node_id: Optional[str],
-    elite_display_nodes: List[SearchNode],
-):
-    ax.axis("off")
-    trained = tree.trained_nodes()
-    pending = tree.pending_nodes()
-    failed = [node for node in tree.nodes.values() if node.candidate and node.candidate.is_failed]
-    best_node = tree.nodes.get(best_node_id) if best_node_id else tree.best_node()
-
-    lines = [
-        f"RF-Agent Dashboard",
-        f"Task: {task_name}",
-        f"Nodes: {len(tree.nodes) - 1}",
-        f"Trained: {len(trained)}",
-        f"Pending training: {len(pending)}",
-        f"Failed: {len(failed)}",
-        f"Current UCT c: {c_param:.4f}",
-        "",
-        "Latest Choices",
-    ]
-    if latest_decisions:
-        for decision in latest_decisions:
-            lines.extend(
-                [
-                    f"- new: {decision.get('candidate_id')}",
-                    f"  update parent: {decision.get('parent_id') or 'root initialization'}",
-                    f"  action: {decision.get('action_type')}[{decision.get('action_index')}]",
-                    f"  parent UCT: {format_optional_float(decision.get('parent_uct_at_selection'))}",
-                    f"  self verify: {format_optional_float(decision.get('self_verify_score'))}",
-                ]
-            )
-    else:
-        lines.append("- none")
-
-    lines.extend(["", "Elite Set"])
-    if elite_display_nodes:
-        for node in elite_display_nodes:
-            lines.append(f"- {node.candidate_id}: {node.reward_cur:.4f}")
-    else:
-        lines.append("- none")
-
-    lines.extend(["", "Final Best Reward"])
-    if best_node and best_node.candidate:
-        lines.extend(
-            [
-                f"candidate: {best_node.candidate_id}",
-                f"score: {best_node.reward_cur:.6f}",
-                f"Q: {best_node.q_value:.6f}",
-                f"visits: {best_node.visits}",
-                "",
-                "Reward code:",
-            ]
-        )
-        code = best_node.candidate.reward_code
-        for line in code.splitlines()[:28]:
-            lines.extend(textwrap.wrap(line, width=54, replace_whitespace=False) or [""])
-    else:
-        lines.append("No trained candidate yet.")
-
-    lines.extend(["", "Train Next"])
-    recs = training_recommendations(tree, latest_decisions)
-    if recs:
-        for rec in recs[:8]:
-            lines.append(f"{rec['rank']}. {rec['candidate_id']} -> {Path(rec['reward_file']).name}")
-    else:
-        lines.append("No pending candidates.")
-
-    ax.text(0.02, 0.98, "\n".join(lines), transform=ax.transAxes, fontsize=9, family="monospace", va="top")
-
-
 def node_status(node: SearchNode) -> str:
     if node.candidate_id == "root":
         return "root"
@@ -441,20 +387,34 @@ def node_status(node: SearchNode) -> str:
 
 def status_fill(status: str) -> str:
     if status == "trained":
-        return "#dcfce7"
+        return "#eefbf3"
     if status in {"pending", "running"}:
-        return "#fef3c7"
+        return "#fff7dc"
     if status == "failed":
-        return "#fee2e2"
+        return "#ffe7e7"
     if status == "root":
-        return "#e0f2fe"
+        return "#eaf6ff"
     return "#f8fafc"
 
 
-def format_optional_float(value) -> str:
-    if value is None:
-        return "n/a"
-    try:
-        return f"{float(value):.4f}"
-    except (TypeError, ValueError):
-        return str(value)
+def format_action(action_type, action_index) -> str:
+    if not action_type:
+        return "root"
+    label = ACTION_LABELS.get(action_type, str(action_type).replace("_", " "))
+    if action_index is None:
+        return label
+    return f"{label}[{action_index}]"
+
+
+def ellipsize(value: str, limit: int) -> str:
+    value = str(value)
+    if len(value) <= limit:
+        return value
+    return value[: max(limit - 3, 1)] + "..."
+
+
+def short_id(candidate_id) -> str:
+    if not candidate_id:
+        return "-"
+    text = str(candidate_id)
+    return "c" + text.rsplit("_", 1)[-1] if "_" in text else text

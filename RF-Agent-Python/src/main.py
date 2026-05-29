@@ -20,7 +20,12 @@ from tree import SearchTree
 def parse_args():
     parser = argparse.ArgumentParser(description="Offline RF-Agent for Python training logs.")
     parser.add_argument("--mode", choices=["inspect", "generate", "sync"], default="inspect")
-    parser.add_argument("--num-candidates", type=int, default=4)
+    parser.add_argument(
+        "--num-candidates",
+        type=int,
+        default=0,
+        help="Optional cap for generated candidates. Use 0 to expand the full RF-Agent action bundle.",
+    )
     parser.add_argument("--task-dir", default="tasks/python_task")
     parser.add_argument("--agent-config", default="configs/agent.json")
     parser.add_argument("--prompt-dir", default="prompts")
