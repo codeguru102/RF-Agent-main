@@ -4,6 +4,7 @@ Output exactly one JSON object:
   "reward_code": "complete Python function code"
 }
 
-The Python code must define compute_reward and must be self-contained.
+The Python code must define reward_fcn and must be self-contained.
+Do not change input/output signature of the function.
 Do not import unavailable project-specific helpers.
 The generated candidate will be saved as reward_fcn.py.
