@@ -5,6 +5,24 @@
   "reward_function_name": "compute_reward",
   "reward_file": "reward_fcn.py",
   "reward_signature": "def compute_reward(obs, action, next_obs, info):",
+  "task_text_files": {
+    "description": {
+      "path": "description.md",
+      "title": "Purpose / Description"
+    },
+    "observations": {
+      "path": "observations.md",
+      "title": "Observations"
+    },
+    "environment": {
+      "path": "environment.md",
+      "title": "Environment"
+    },
+    "original_reward": {
+      "path": "original_reward.py",
+      "title": "Original Reward"
+    }
+  },
   "available_variables": [
     "obs['position_error']",
     "obs['velocity_error']",
@@ -25,4 +43,3 @@
     ]
   }
 }
-

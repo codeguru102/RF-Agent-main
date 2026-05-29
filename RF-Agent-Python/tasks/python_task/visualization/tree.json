@@ -81,6 +81,10 @@
     {
       "candidate_id": "candidate_000003",
       "score": 62.046761223320445
+    },
+    {
+      "candidate_id": "candidate_000004",
+      "score": 62.046761223320445
     }
   ],
   "best_trained": {
@@ -519,7 +523,7 @@
       "self_verify_score": 0.0,
       "uct_score": 1.087551537157281,
       "uct_note": "selectable",
-      "is_elite": false,
+      "is_elite": true,
       "selected_for_update": false,
       "selected_for_training": false,
       "new_training_candidate": false,

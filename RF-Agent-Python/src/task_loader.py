@@ -6,11 +6,23 @@ from typing import Dict, List
 from config import load_json
 
 
-TASK_TEXT_FILES = {
-    "description": "description.md",
-    "observations": "observations.md",
-    "environment": "environment.md",
-    "original_reward": "original_reward.py",
+DEFAULT_TASK_TEXT_FILES = {
+    "description": {
+        "path": "description.md",
+        "title": "Purpose / Description",
+    },
+    "observations": {
+        "path": "observations.md",
+        "title": "Observations",
+    },
+    "environment": {
+        "path": "environment.md",
+        "title": "Environment",
+    },
+    "original_reward": {
+        "path": "original_reward.py",
+        "title": "Original Reward",
+    },
 }
 
 
@@ -27,14 +39,56 @@ def load_task_folder(task_dir: Path) -> dict:
     config.setdefault("reward_function_name", "compute_reward")
     config.setdefault("reward_file", "reward_fcn.py")
 
-    for key, filename in TASK_TEXT_FILES.items():
-        path = task_dir / filename
-        config[f"{key}_text"] = path.read_text(encoding="utf-8") if path.exists() else ""
+    text_files = normalize_task_text_files(config.get("task_text_files", DEFAULT_TASK_TEXT_FILES))
+    text_sections = []
+    for item in text_files:
+        path = task_dir / item["path"]
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+        config[f"{item['key']}_text"] = content
+        text_sections.append(
+            {
+                "key": item["key"],
+                "title": item["title"],
+                "path": item["path"],
+                "content": content,
+            }
+        )
+    config["_task_text_sections"] = text_sections
 
     config["log_inventory"] = collect_log_inventory(task_dir / "logs")
     config["candidate_log_inventory"] = collect_log_inventory(task_dir / "candidates")
     config["task_context"] = build_task_context(config)
     return config
+
+
+def normalize_task_text_files(config_value) -> List[Dict[str, str]]:
+    items = config_value.items() if isinstance(config_value, dict) else enumerate(config_value or [])
+    normalized = []
+    for key, value in items:
+        if isinstance(value, str):
+            text_key = str(key)
+            path = value
+            title = title_from_key(text_key)
+        else:
+            text_key = str(value.get("key", key))
+            path = value.get("path") or value.get("file")
+            title = value.get("title", title_from_key(text_key))
+        if not path:
+            continue
+        normalized.append(
+            {
+                "key": text_key,
+                "path": str(path),
+                "title": str(title),
+            }
+        )
+    return normalized
+
+
+def title_from_key(key: str) -> str:
+    if key == "description":
+        return "Purpose / Description"
+    return key.replace("_", " ").title()
 
 
 def collect_log_inventory(path: Path) -> List[str]:
@@ -52,10 +106,13 @@ def collect_log_inventory(path: Path) -> List[str]:
 
 def build_task_context(config: Dict) -> str:
     sections = []
-    sections.append(section("Purpose / Description", config.get("description_text") or config.get("description", "")))
-    sections.append(section("Observations", config.get("observations_text", "")))
-    sections.append(section("Environment", config.get("environment_text", "")))
-    sections.append(section("Original Reward", config.get("original_reward_text", "")))
+    text_sections = config.get("_task_text_sections", [])
+    if text_sections:
+        for item in text_sections:
+            fallback = config.get("description", "") if item["key"] == "description" else ""
+            sections.append(section(item["title"], item.get("content") or fallback))
+    else:
+        sections.append(section("Purpose / Description", config.get("description", "")))
 
     available_variables = config.get("available_variables", [])
     if available_variables:
@@ -77,4 +134,3 @@ def section(title: str, content: str) -> str:
     if not content:
         return ""
     return f"## {title}\n{content}"
-

@@ -31,6 +31,18 @@ tasks/<task_name>/
 ```
 
 Replace the starter files in [tasks/python_task](tasks/python_task) with your real task description, observation schema, original reward, environment notes, and any reference logs.
+Configure which task files are loaded into the LLM context in `task.json`:
+
+```json
+"task_text_files": {
+  "description": {"path": "description.md", "title": "Purpose / Description"},
+  "observations": {"path": "observations.md", "title": "Observations"},
+  "environment": {"path": "environment.md", "title": "Environment"},
+  "original_reward": {"path": "original_reward.py", "title": "Original Reward"}
+}
+```
+
+Each task can use a different set of keys and filenames.
 
 ## Candidate Folder
 
@@ -153,7 +165,13 @@ See [python/run_pending_candidates_template.py](python/run_pending_candidates_te
 
 ## OpenAI Setup
 
-Set an API key before non-dry-run generation:
+Set an API key before non-dry-run generation. The project automatically reads `RF-Agent-Python/.env`:
+
+```text
+OPENAI_API_KEY=your_key_here
+```
+
+You can also set it manually:
 
 ```bash
 set OPENAI_API_KEY=your_key_here
