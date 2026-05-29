@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import traceback
 from pathlib import Path
 from typing import List
 
 from candidate_store import CandidateStore
 from candidate_store import utc_now
 from config import load_json, save_json
+from console import print_error, print_info, print_success, print_warning
 from dashboard import render_dashboard
 from feedback_builder import FeedbackBuilder
 from llm_client import LLMClient
@@ -30,6 +32,7 @@ def parse_args():
     parser.add_argument("--agent-config", default="configs/agent.json")
     parser.add_argument("--prompt-dir", default="prompts")
     parser.add_argument("--dry-run", action="store_true", help="Generate placeholder rewards without calling an LLM.")
+    parser.add_argument("--debug", action="store_true", help="Show full Python tracebacks on failure.")
     return parser.parse_args()
 
 
@@ -82,8 +85,8 @@ def inspect_state(tree: SearchTree, task_name: str, elite_ids: List[str], elite_
         print(f"- {node.candidate_id}: score={node.reward_cur:.6f}, action={node.action_type}, parent={node.parent_id}")
 
 
-def main():
-    args = parse_args()
+def main(args=None):
+    args = args or parse_args()
     task_config, agent_config, store, tree, agent = build_context(args)
 
     if args.mode == "inspect":
@@ -198,5 +201,24 @@ def sync_candidate_summaries(store: CandidateStore, log_reader: PythonLogReader)
     return synced
 
 
+def run_cli() -> int:
+    args = parse_args()
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        print_warning("Canceled by user.")
+        return 130
+    except Exception as exc:
+        print_error(f"RF-Agent-Python failed: {exc}")
+        if args.debug:
+            traceback.print_exc()
+        else:
+            print_info("Run again with --debug to show the full traceback.")
+        return 1
+
+    print_success("RF-Agent-Python finished successfully.")
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(run_cli())

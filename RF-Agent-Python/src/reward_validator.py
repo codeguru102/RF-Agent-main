@@ -25,7 +25,7 @@ def validate_reward_code(code: str, task_config: dict) -> RewardValidationResult
     except Exception as exc:
         return RewardValidationResult(False, [f"Compile error: {exc}"])
 
-    expected_name = task_config.get("reward_function_name", "compute_reward")
+    expected_name = task_config.get("reward_function_name", "reward_fcn")
     function_defs = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
     reward_def = next((node for node in function_defs if node.name == expected_name), None)
     if reward_def is None:

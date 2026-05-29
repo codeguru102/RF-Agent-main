@@ -58,7 +58,7 @@ class LLMClient:
     def _dry_run_response(self, messages: List[dict]) -> str:
         return """{
   "design_thought": "Dry-run reward: penalize tracking errors, control effort, and constraint violations while adding a success bonus.",
-  "reward_code": "def compute_reward(obs, action, next_obs, info):\\n    \\"\\"\\"Dry-run placeholder reward generated without an LLM call.\\"\\"\\"\\n    position_term = -abs(next_obs['position_error'])\\n    velocity_term = -0.1 * abs(next_obs['velocity_error'])\\n    torque = action['motor_torque']\\n    control_term = -0.001 * sum(t * t for t in torque)\\n    constraint_term = -10.0 * info['constraint_violation']\\n    success_bonus = 5.0 * float(info['success'])\\n    return position_term + velocity_term + control_term + constraint_term + success_bonus"
+  "reward_code": "def reward_fcn(state, u_action, prev_u_action=None, flag=None):\\n    \\"\\"\\"Dry-run placeholder reward generated without an LLM call.\\"\\"\\"\\n    position_term = -abs(next_obs['position_error'])\\n    velocity_term = -0.1 * abs(next_obs['velocity_error'])\\n    torque = action['motor_torque']\\n    control_term = -0.001 * sum(t * t for t in torque)\\n    constraint_term = -10.0 * info['constraint_violation']\\n    success_bonus = 5.0 * float(info['success'])\\n    return position_term + velocity_term + control_term + constraint_term + success_bonus"
 }"""
 
 

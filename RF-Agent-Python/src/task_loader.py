@@ -36,7 +36,7 @@ def load_task_folder(task_dir: Path) -> dict:
     config["_task_dir"] = str(task_dir)
     config.setdefault("task_name", task_dir.name)
     config.setdefault("reward_language", "python")
-    config.setdefault("reward_function_name", "compute_reward")
+    config.setdefault("reward_function_name", "reward_fcn")
     config.setdefault("reward_file", "reward_fcn.py")
 
     text_files = normalize_task_text_files(config.get("task_text_files", DEFAULT_TASK_TEXT_FILES))

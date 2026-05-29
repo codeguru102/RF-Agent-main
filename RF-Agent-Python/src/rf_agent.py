@@ -3,9 +3,10 @@ from __future__ import annotations
 import random
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from candidate_store import CandidateStore
+from console import Spinner
 from feedback_builder import FeedbackBuilder
 from llm_client import LLMClient
 from reward_parser import parse_reward_response
@@ -64,8 +65,20 @@ class OfflineRFAgent:
         for action_type, action_index, source_nodes in action_plan:
             parent_uct_at_selection = None if parent is None else self.tree.uct_score(parent, selection_c_param)
             messages = self._build_messages(parent, action_type, source_nodes)
-            design_thought, reward_code, response, validation_attempts = self._generate_valid_reward(messages)
-            self_verify_score = self._self_verify_reward(design_thought, reward_code)
+            label = self._operation_label("OpenAI reward generation", parent, action_type, action_index)
+            with Spinner(label, enabled=not self.llm_client.dry_run) as spinner:
+                design_thought, reward_code, response, validation_attempts = self._generate_valid_reward(
+                    messages,
+                    status=spinner.update,
+                )
+                spinner.succeed(f"Generated {action_type}[{action_index}] in {validation_attempts} attempt(s)")
+
+            self_verify_score = 0.0
+            if self.enable_self_verify and not self.llm_client.dry_run:
+                label = self._operation_label("OpenAI self verification", parent, action_type, action_index)
+                with Spinner(label) as spinner:
+                    self_verify_score = self._self_verify_reward(design_thought, reward_code)
+                    spinner.succeed(f"Self-verify score for {action_type}[{action_index}]: {self_verify_score:.3f}")
 
             generation = 0 if parent is None else parent.depth + 1
             parent_id = None if parent is None else parent.candidate_id
@@ -329,7 +342,11 @@ class OfflineRFAgent:
     def _prompt(self, filename: str) -> str:
         return (self.prompt_dir / filename).read_text(encoding="utf-8").strip()
 
-    def _generate_valid_reward(self, messages: List[dict]) -> Tuple[str, str, str, int]:
+    def _generate_valid_reward(
+        self,
+        messages: List[dict],
+        status: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[str, str, str, int]:
         current_messages = list(messages)
         same_try_cnt = 0
         last_error = ""
@@ -338,10 +355,9 @@ class OfflineRFAgent:
             if same_try_cnt >= self.max_same_try_cnt:
                 current_messages = list(messages)
                 same_try_cnt = 0
-            
-            print("##################################")
-            print(current_messages)
-            print("##################################")
+
+            if status is not None:
+                status(f"OpenAI reward generation attempt {attempt}/{self.max_try_num}")
             response = self.llm_client.complete(current_messages)
             last_response = response
             design_thought, reward_code = parse_reward_response(response)
@@ -355,6 +371,8 @@ class OfflineRFAgent:
 
             current_messages = self._build_retry_messages(messages, reward_code, last_error)
             same_try_cnt += 1
+            if status is not None:
+                status(f"Retrying with validation feedback: {last_error}")
 
         raise RuntimeError(
             "Could not generate a valid reward function after "
@@ -450,3 +468,14 @@ class OfflineRFAgent:
         if num_candidates and num_candidates > 0:
             return action_plan[:num_candidates]
         return action_plan
+
+    def _operation_label(
+        self,
+        prefix: str,
+        parent: Optional[SearchNode],
+        action_type: str,
+        action_index: int,
+    ) -> str:
+        if parent is None:
+            return f"{prefix}: {action_type}[{action_index}] from root"
+        return f"{prefix}: {action_type}[{action_index}] from {parent.candidate_id}"
