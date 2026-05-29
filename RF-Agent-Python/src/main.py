@@ -26,7 +26,7 @@ def parse_args():
         "--num-candidates",
         type=int,
         default=0,
-        help="Optional cap for generated candidates. Use 0 to expand the full RF-Agent action bundle.",
+        help="Deprecated. RF-Agent expansion always creates the full action bundle.",
     )
     parser.add_argument("--task-dir", default="tasks/python_task")
     parser.add_argument("--agent-config", default="configs/agent.json")
@@ -56,6 +56,7 @@ def build_context(args):
         model=agent_config.get("model", "gpt-4o-mini"),
         temperature=float(agent_config.get("temperature", 1.0)),
         dry_run=args.dry_run,
+        dry_run_reward_signature=task_config.get("reward_signature", "def reward_fcn(state, u_action, prev_u_action=None, flag=None):"),
     )
     agent = OfflineRFAgent(
         task_config=task_config,
@@ -109,6 +110,12 @@ def main(args=None):
         )
         render_and_print(args, task_config, agent_config, store, tree)
         return
+
+    if args.num_candidates > 0:
+        raise RuntimeError(
+            "Original RF-Agent expansion creates the full action bundle at once. "
+            "Run without --num-candidates to keep expansion logic identical."
+        )
 
     created = agent.generate_batch(args.num_candidates)
     save_json(store.root / "latest_generation.json", agent.last_generation_decisions)

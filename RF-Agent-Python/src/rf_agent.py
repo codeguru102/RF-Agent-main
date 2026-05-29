@@ -126,15 +126,21 @@ class OfflineRFAgent:
     def _select_node_for_expansion(self, c_param: float) -> Optional[SearchNode]:
         initial_size = int(self.agent_config.get("initial_size", 6))
         root_initial_count = sum(1 for child in self.tree.root.children if child.action_type == "initialize")
-        if root_initial_count < initial_size:
+        if root_initial_count == 0:
             self.last_selection_path = [
                 {
                     "node_id": "root",
                     "uct_score": None,
-                    "reason": "root still needs initial candidates",
+                    "reason": "root initial expansion",
                 }
             ]
             return None
+        if root_initial_count < initial_size:
+            pending_ids = ", ".join(child.candidate_id for child in self.tree.root.children)
+            raise RuntimeError(
+                "Root has a partial initial expansion. Original RF-Agent creates all initial "
+                f"candidates in one expansion. Finish or remove the partial set first: {pending_ids}"
+            )
 
         if not self.tree.trained_nodes():
             raise RuntimeError(
@@ -145,17 +151,14 @@ class OfflineRFAgent:
         node = self.tree.root
         path = [{"node_id": "root", "uct_score": None, "reason": "start"}]
         max_depth = int(self.agent_config.get("tree_max_depth", 16))
-        while node.depth < max_depth:
-            if node is not self.tree.root and node.children and self._available_actions(node):
-                path.append(
-                    {
-                        "node_id": node.candidate_id,
-                        "uct_score": self.tree.uct_score(node, c_param),
-                        "reason": "complete partial expansion bundle",
-                    }
+        while node.children and node.depth < max_depth:
+            pending_children = [child for child in node.children if child.candidate and child.candidate.is_pending]
+            if pending_children:
+                pending_ids = ", ".join(child.candidate_id for child in pending_children)
+                raise RuntimeError(
+                    f"Node {node.candidate_id} has pending children. Original RF-Agent waits for the "
+                    f"whole expanded batch to finish before selecting again. Train these first: {pending_ids}"
                 )
-                break
-
             selectable_children = self.tree.selectable_children(node)
             if not selectable_children:
                 break
@@ -172,36 +175,11 @@ class OfflineRFAgent:
             node = best_child
 
         if node is self.tree.root:
-            elites = self.tree.elite_nodes(1)
-            if not elites:
-                raise RuntimeError("No trained candidate is available for expansion.")
-            node = elites[0]
-            path.append(
-                {
-                    "node_id": node.candidate_id,
-                    "uct_score": self.tree.uct_score(node, c_param),
-                    "reason": "fallback elite expansion",
-                }
-            )
+            raise RuntimeError("No trained child can be selected from the root.")
 
-        if not self._available_actions(node):
-            pending_children = [child for child in node.children if child.candidate and child.candidate.is_pending]
-            if pending_children:
-                pending_ids = ", ".join(child.candidate_id for child in pending_children)
-                raise RuntimeError(
-                    f"Selected node {node.candidate_id} already has a full pending expansion bundle. "
-                    f"Train these candidates before expanding deeper: {pending_ids}"
-                )
-            expandable = [candidate for candidate in self.tree.trained_nodes() if self._available_actions(candidate)]
-            if not expandable:
-                raise RuntimeError("All trained nodes are fully expanded. Increase action weights or generate new initial candidates.")
-            node = max(expandable, key=lambda candidate: self.tree.uct_score(candidate, c_param))
-            path.append(
-                {
-                    "node_id": node.candidate_id,
-                    "uct_score": self.tree.uct_score(node, c_param),
-                    "reason": "fallback best expandable UCT node",
-                }
+        if node.children:
+            raise RuntimeError(
+                f"Selected node {node.candidate_id} is not a leaf. Original RF-Agent expands only selected leaves."
             )
 
         self.last_selection_path = path
@@ -214,9 +192,11 @@ class OfflineRFAgent:
             actions = [("initialize", root_initial_count + index, []) for index in range(initial_size - root_initial_count)]
             return self._maybe_cap_action_plan(actions, num_candidates)
 
-        actions = self._available_actions(parent)
-        if not actions:
-            raise RuntimeError(f"Selected node {parent.candidate_id} has no available expansion actions.")
+        if parent.children:
+            raise RuntimeError(
+                f"Selected node {parent.candidate_id} already has children. Original RF-Agent expands a leaf once."
+            )
+        actions = self._full_action_bundle()
         planned = []
         for action_type, action_index in actions:
             planned.append((action_type, action_index, self._source_nodes_for_action(parent, action_type)))
@@ -243,15 +223,23 @@ class OfflineRFAgent:
                     actions.append((action_type, action_index))
         return actions
 
+    def _full_action_bundle(self) -> List[Tuple[str, int]]:
+        actions = []
+        for action_type in ACTION_ORDER:
+            max_count = int(self.action_weights.get(action_type, 1))
+            for action_index in range(max_count):
+                actions.append((action_type, action_index))
+        return actions
+
     def _source_nodes_for_action(self, parent: SearchNode, action_type: str) -> List[SearchNode]:
         if action_type in {"mutation_mechanism", "mutation_param"}:
             return [parent]
 
         if action_type == "crossover_elite":
-            elites = [node for node in self._elite_set_nodes() if node != parent]
+            elites = self._elite_set_nodes()
             max_count = int(self.agent_config.get("elite_control_num", 4))
-            count = self.random.randint(1, max(max_count - 1, 1))
-            return [parent] + self._weighted_elite_sample(elites, count)
+            count = self.random.randint(2, max(max_count, 2)) - 1
+            return self._weighted_elite_choices(elites, count) + [parent]
 
         if action_type == "tree_reasoning":
             path = self.tree.path_to_root(parent)
@@ -259,9 +247,7 @@ class OfflineRFAgent:
             return path[-max_len:]
 
         if action_type == "different_thought":
-            different = self.tree.branch_excluding(parent, randomize=True, rng=self.random)
-            max_len = int(self.agent_config.get("different_thought_max_control_num", 4))
-            return [parent] + different[: max(max_len - 1, 0)]
+            return self._different_thought_sources(parent)
 
         return []
 
@@ -350,7 +336,6 @@ class OfflineRFAgent:
         current_messages = list(messages)
         same_try_cnt = 0
         last_error = ""
-        last_response = ""
         for attempt in range(1, self.max_try_num + 1):
             if same_try_cnt >= self.max_same_try_cnt:
                 current_messages = list(messages)
@@ -359,7 +344,6 @@ class OfflineRFAgent:
             if status is not None:
                 status(f"OpenAI reward generation attempt {attempt}/{self.max_try_num}")
             response = self.llm_client.complete(current_messages)
-            last_response = response
             design_thought, reward_code = parse_reward_response(response)
             if not reward_code:
                 last_error = "LLM response did not contain reward code."
@@ -376,7 +360,7 @@ class OfflineRFAgent:
 
         raise RuntimeError(
             "Could not generate a valid reward function after "
-            f"{self.max_try_num} attempts. Last error: {last_error}\nLast response:\n{last_response}"
+            f"{self.max_try_num} attempts. Last validation error: {last_error}"
         )
 
     def _build_retry_messages(self, base_messages: List[dict], reward_code: str, error_message: str) -> List[dict]:
@@ -431,18 +415,49 @@ class OfflineRFAgent:
         number = re.search(r"[-+]?\d*\.?\d+", response)
         return float(number.group(0)) if number else 0.0
 
-    def _weighted_elite_sample(self, nodes: List[SearchNode], count: int) -> List[SearchNode]:
+    def _weighted_elite_choices(self, nodes: List[SearchNode], count: int) -> List[SearchNode]:
         if not nodes or count <= 0:
             return []
         bias = float(self.agent_config.get("elite_weight_bias", 1.0))
-        selected = []
-        pool = list(nodes)
-        while pool and len(selected) < count:
-            weights = [1.0 / (rank + 1.0 + bias) for rank in range(len(pool))]
-            choice = self.random.choices(pool, weights=weights, k=1)[0]
-            selected.append(choice)
-            pool.remove(choice)
-        return selected
+        weights = [1.0 / (rank + 1.0 + bias) for rank in range(len(nodes))]
+        return self.random.choices(nodes, weights=weights, k=count)
+
+    def _different_thought_sources(self, parent: SearchNode) -> List[SearchNode]:
+        max_count = int(self.agent_config.get("different_thought_max_control_num", 4))
+        count = self.random.randint(2, max(max_count, 2)) - 1
+        current_root_child = self._root_branch_child(parent)
+        available_subtrees = [
+            child
+            for child in self.tree.root.children
+            if child.is_trained and child is not current_root_child
+        ]
+        selected_subtrees = self.random.sample(available_subtrees, min(count, len(available_subtrees)))
+
+        nodes = []
+        for subtree in selected_subtrees:
+            explore_depth = self.random.randint(0, self._max_trained_depth_below(subtree))
+            selected = subtree
+            for _ in range(explore_depth):
+                trained_children = [child for child in selected.children if child.is_trained]
+                if not trained_children:
+                    break
+                selected = max(trained_children, key=lambda child: child.reward_cur)
+            nodes.append(selected)
+
+        nodes.append(parent)
+        return nodes
+
+    def _root_branch_child(self, node: SearchNode) -> SearchNode:
+        current = node
+        while current.parent_id and current.parent_id != "root":
+            current = self.tree.nodes.get(current.parent_id, current)
+        return current
+
+    def _max_trained_depth_below(self, node: SearchNode) -> int:
+        trained_children = [child for child in node.children if child.is_trained]
+        if not trained_children:
+            return 0
+        return 1 + max(self._max_trained_depth_below(child) for child in trained_children)
 
     def _elite_set_nodes(self) -> List[SearchNode]:
         return self.tree.elite_set_nodes(
