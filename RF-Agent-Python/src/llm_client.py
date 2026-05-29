@@ -28,11 +28,15 @@ class LLMClient:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not set. Put it in RF-Agent-Python/.env or use --dry-run.")
+        proxy_url = configure_proxy_env()
 
         try:
-            from openai import OpenAI
+            from openai import DefaultHttpxClient, OpenAI
 
-            client = OpenAI(api_key=api_key)
+            client_kwargs = {"api_key": api_key}
+            if proxy_url:
+                client_kwargs["http_client"] = DefaultHttpxClient(proxy=proxy_url)
+            client = OpenAI(**client_kwargs)
             for attempt in range(20):
                 try:
                     response = client.chat.completions.create(
@@ -49,6 +53,8 @@ class LLMClient:
             import openai
 
             openai.api_key = api_key
+            if proxy_url:
+                openai.proxy = proxy_url
             for attempt in range(20):
                 try:
                     response = openai.ChatCompletion.create(
@@ -92,6 +98,33 @@ def load_dotenv(path: Path | None = None) -> None:
         value = strip_env_value(value.strip())
         if key and key not in os.environ:
             os.environ[key] = value
+
+
+def configure_proxy_env() -> str:
+    proxy_url = first_env_value(
+        "OPENAI_PROXY",
+        "PROXY",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "ALL_PROXY",
+        "https_proxy",
+        "http_proxy",
+        "all_proxy",
+    )
+    if not proxy_url:
+        return ""
+
+    for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"):
+        os.environ.setdefault(key, proxy_url)
+    return proxy_url
+
+
+def first_env_value(*keys: str) -> str:
+    for key in keys:
+        value = os.getenv(key)
+        if value:
+            return value
+    return ""
 
 
 def find_dotenv() -> Path | None:
