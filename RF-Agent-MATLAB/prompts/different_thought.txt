@@ -3,5 +3,4 @@ Create a reward that explores a meaningfully different design direction from the
 Candidate group:
 {reward_func_group}
 
-The new reward should still use the task variables and optimize the same MATLAB score, but should not be a small parameter tweak.
-
+The new reward should still use the task variables and optimize the same MATLAB training score, but should not be a small parameter tweak.

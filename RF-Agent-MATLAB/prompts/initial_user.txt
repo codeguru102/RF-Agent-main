@@ -1,6 +1,9 @@
 Task:
 {task_description}
 
+Full task context:
+{task_context}
+
 Reward signature:
 {reward_signature}
 
@@ -11,4 +14,3 @@ Optimization target:
 {score_description}
 
 Write a new reward candidate.
-

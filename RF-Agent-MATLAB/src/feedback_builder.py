@@ -38,4 +38,3 @@ class FeedbackBuilder:
             parts.append(f"error_message: {candidate.status['error_message']}")
 
         return "\n".join(parts)
-

@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 def load_json(path):
-    with Path(path).open("r", encoding="utf-8") as file:
+    with Path(path).open("r", encoding="utf-8-sig") as file:
         return json.load(file)
 
 
@@ -13,4 +13,3 @@ def save_json(path, data):
     with path.open("w", encoding="utf-8") as file:
         json.dump(data, file, indent=2)
         file.write("\n")
-

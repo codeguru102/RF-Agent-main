@@ -1,0 +1,10 @@
+The generated reward function is invalid.
+
+Reward function:
+{reward_function}
+
+Validation or execution error:
+{traceback_msg}
+
+Please fix the issue and return exactly one JSON object with keys "design_thought" and "reward_code".
+The reward_code value must contain the complete MATLAB function with the configured reward signature.

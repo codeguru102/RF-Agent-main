@@ -5,9 +5,10 @@
 function run_pending_candidates_template()
     projectRoot = fileparts(fileparts(mfilename('fullpath')));
     taskName = "matlab_task";
-    taskDir = fullfile(projectRoot, "experiments", taskName);
+    taskDir = fullfile(projectRoot, "tasks", taskName);
+    candidatesDir = fullfile(taskDir, "candidates");
 
-    candidates = dir(fullfile(taskDir, "candidate_*"));
+    candidates = dir(fullfile(candidatesDir, "candidate_*"));
     for i = 1:numel(candidates)
         candidateDir = fullfile(candidates(i).folder, candidates(i).name);
         statusPath = fullfile(candidateDir, "status.json");
@@ -23,7 +24,7 @@ function run_pending_candidates_template()
 
         try
             mark_status(candidateDir, "running", "");
-            rewardPath = fullfile(candidateDir, "reward.m");
+            rewardPath = fullfile(candidateDir, "reward_fcn.m");
 
             % Replace this placeholder with your actual MATLAB RL training.
             result = train_one_candidate(rewardPath, candidateDir);
@@ -39,13 +40,17 @@ function run_pending_candidates_template()
             mark_status(candidateDir, "failed", ME.message);
         end
     end
+
+    dashboardScript = fullfile(projectRoot, "src", "main.py");
+    command = sprintf('python "%s" --mode inspect --task-dir "%s"', dashboardScript, taskDir);
+    system(command);
 end
 
 function result = train_one_candidate(rewardPath, candidateDir)
     %#ok<INUSD>
     % TODO: call your real MATLAB trainer here.
     % Your trainer should use rewardPath, write logs/train.csv if available,
-    % and return the metrics used by configs/task.json.
+    % and return the metrics configured in tasks/<task_name>/task.json.
     result = struct();
     result.status = "trained";
     result.max_task_score = 0.0;
@@ -69,4 +74,3 @@ function write_json(path, data)
     cleanup = onCleanup(@() fclose(fid));
     fprintf(fid, '%s\n', jsonencode(data, PrettyPrint=true));
 end
-

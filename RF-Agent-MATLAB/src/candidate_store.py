@@ -48,8 +48,8 @@ class Candidate:
 
 
 class CandidateStore:
-    def __init__(self, experiments_dir: Path, task_name: str):
-        self.root = Path(experiments_dir) / task_name
+    def __init__(self, candidates_dir: Path, task_name: Optional[str] = None):
+        self.root = Path(candidates_dir) / task_name if task_name else Path(candidates_dir)
         self.root.mkdir(parents=True, exist_ok=True)
 
     def scan(self) -> List[Candidate]:
@@ -65,7 +65,9 @@ class CandidateStore:
             status = load_json(status_path) if status_path.exists() else {"status": metadata.get("status", "unknown")}
             summary_path = folder / "summary.json"
             summary = load_json(summary_path) if summary_path.exists() else None
-            reward_file = folder / metadata.get("reward_file", "reward.m")
+            reward_file = folder / metadata.get("reward_file", "reward_fcn.m")
+            if not reward_file.exists() and (folder / "reward.m").exists():
+                reward_file = folder / "reward.m"
             reward_code = reward_file.read_text(encoding="utf-8") if reward_file.exists() else ""
             candidates.append(
                 Candidate(
@@ -88,6 +90,34 @@ class CandidateStore:
                 max_id = max(max_id, int(match.group(1)))
         return f"candidate_{max_id + 1:06d}"
 
+    def load_elite_ids(self) -> List[str]:
+        elite_path = self.root / "elite_set.json"
+        if elite_path.exists():
+            data = load_json(elite_path)
+            if isinstance(data, list):
+                return [str(item) for item in data]
+            return [str(item) for item in data.get("candidate_ids", [])]
+
+        latest_path = self.root / "latest_generation.json"
+        if not latest_path.exists():
+            return []
+        latest = load_json(latest_path)
+        ids = []
+        for decision in latest:
+            selected_id = decision.get("selected_tree_node_id") or decision.get("parent_id")
+            if selected_id and selected_id not in ids:
+                ids.append(selected_id)
+        return ids
+
+    def save_elite_ids(self, candidate_ids: Iterable[str]) -> None:
+        save_json(
+            self.root / "elite_set.json",
+            {
+                "candidate_ids": list(candidate_ids),
+                "updated_at": utc_now(),
+            },
+        )
+
     def create_candidate(
         self,
         *,
@@ -100,13 +130,15 @@ class CandidateStore:
         design_thought: str,
         prompt_messages: list,
         source_node_ids: Iterable[str],
+        extra_metadata: Optional[dict] = None,
     ) -> Candidate:
         candidate_id = self.next_candidate_id()
         folder = self.root / candidate_id
         logs_dir = folder / "logs"
         logs_dir.mkdir(parents=True, exist_ok=False)
 
-        reward_file = "reward.m" if reward_language.lower() == "matlab" else "reward.py"
+        reward_file = "reward_fcn.m" if reward_language.lower() == "matlab" else "reward_fcn.py"
+        created_by = "rf-agent-matlab" if reward_language.lower() == "matlab" else "rf-agent-python"
         metadata = {
             "candidate_id": candidate_id,
             "parent_id": parent_id,
@@ -114,13 +146,15 @@ class CandidateStore:
             "action_index": action_index,
             "generation": generation,
             "created_at": utc_now(),
-            "created_by": "rf-agent-matlab",
+            "created_by": created_by,
             "reward_language": reward_language,
             "reward_file": reward_file,
             "design_thought": design_thought,
             "source_node_ids": list(source_node_ids),
             "status": "pending",
         }
+        if extra_metadata:
+            metadata.update(extra_metadata)
         status = {
             "status": "pending",
             "updated_at": utc_now(),
@@ -141,4 +175,3 @@ class CandidateStore:
             summary=None,
             reward_code=reward_code,
         )
-

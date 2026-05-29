@@ -35,7 +35,6 @@ def _extract_code_block(content: str) -> str:
     patterns = [
         r"```matlab\s*(.*?)```",
         r"```m\s*(.*?)```",
-        r"```python\s*(.*?)```",
         r"```\s*(.*?)```",
     ]
     for pattern in patterns:
@@ -47,4 +46,3 @@ def _extract_code_block(content: str) -> str:
     if function_match:
         return function_match.group(1).strip()
     return ""
-
