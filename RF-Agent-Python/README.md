@@ -105,6 +105,8 @@ The offline agent keeps the RF-Agent search actions:
 - `tree_reasoning`
 - `different_thought`
 
+After root initialization, each selected trained leaf expands into six pending candidates: one for each unique non-initial action, plus one random extra action sampled from those five.
+
 It rebuilds parent/child relationships from candidate metadata, computes RF-Agent-style Q values and UCT scores, includes the self-verification score in selection, selects trained parents for expansion, generates new pending rewards with validation/retry feedback, persists the RF-Agent elite set used by crossover, and exports the best trained reward.
 
 ## Commands

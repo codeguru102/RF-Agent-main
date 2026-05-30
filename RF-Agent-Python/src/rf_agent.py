@@ -43,6 +43,7 @@ class OfflineRFAgent:
         self.feedback_builder = feedback_builder
         self.llm_client = llm_client
         self.action_weights = agent_config.get("action_weights", {})
+        self.random_extra_action = bool(agent_config.get("random_extra_action", True))
         self.max_try_num = int(agent_config.get("max_try_num", 9))
         self.max_same_try_cnt = int(agent_config.get("max_same_try_cnt", 3))
         self.enable_self_verify = bool(agent_config.get("enable_self_verify", True))
@@ -215,20 +216,28 @@ class OfflineRFAgent:
                 continue
             used.add((child.action_type, int(child.action_index or 0)))
 
-        actions = []
-        for action_type in ACTION_ORDER:
-            max_count = int(self.action_weights.get(action_type, 1))
-            for action_index in range(max_count):
-                if (action_type, action_index) not in used:
-                    actions.append((action_type, action_index))
-        return actions
+        return [
+            (action_type, action_index)
+            for action_type, action_index in self._full_action_bundle()
+            if (action_type, action_index) not in used
+        ]
 
     def _full_action_bundle(self) -> List[Tuple[str, int]]:
-        actions = []
+        actions: List[Tuple[str, int]] = []
         for action_type in ACTION_ORDER:
-            max_count = int(self.action_weights.get(action_type, 1))
-            for action_index in range(max_count):
-                actions.append((action_type, action_index))
+            if int(self.action_weights.get(action_type, 1)) <= 0:
+                continue
+            actions.append((action_type, 0))
+
+        if self.random_extra_action and actions:
+            random_action_type = self.random.choice([action_type for action_type, _ in actions])
+            extra_index = 1 + max(
+                action_index
+                for action_type, action_index in actions
+                if action_type == random_action_type
+            )
+            actions.append((random_action_type, extra_index))
+
         return actions
 
     def _source_nodes_for_action(self, parent: SearchNode, action_type: str) -> List[SearchNode]:

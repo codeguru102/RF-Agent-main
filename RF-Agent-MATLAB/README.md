@@ -82,7 +82,7 @@ This project keeps the same RF-Agent logic as `RF-Agent-Python`:
 
 - Full initial expansion from the root.
 - UCT-based selection of the best trained leaf before every next expansion.
-- Full action-bundle generation from the selected node.
+- Six-candidate action-bundle generation from the selected node: one candidate per unique action, plus one random extra action sampled from those same actions.
 - Actions: `initialize`, `mutation_mechanism`, `mutation_param`, `crossover_elite`, `tree_reasoning`, `different_thought`.
 - Parent/child tree rebuild from candidate metadata on every run.
 - Q value, UCT, self-verification score, elite-set persistence, validation retries, CSV sync, best reward export, and dashboard rendering.

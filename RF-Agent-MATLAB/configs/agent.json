@@ -16,10 +16,11 @@
   "max_same_try_cnt": 3,
   "enable_self_verify": true,
   "dummy_failure": -10000.0,
+  "random_extra_action": true,
   "action_weights": {
-    "mutation_mechanism": 2,
-    "mutation_param": 2,
-    "crossover_elite": 2,
+    "mutation_mechanism": 1,
+    "mutation_param": 1,
+    "crossover_elite": 1,
     "tree_reasoning": 1,
     "different_thought": 1
   }
