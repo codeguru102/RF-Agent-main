@@ -1,5 +1,5 @@
 {
-  "model": "gpt-4o-mini",
+  "model": "gpt-5.5",
   "temperature": 1.0,
   "simulations": 80,
   "initial_size": 6,

@@ -206,7 +206,8 @@ def draw_matplotlib_dashboard(
 
 
 def compute_current_c_param(tree: SearchTree, agent_config: dict) -> float:
-    progress = len(tree.trained_nodes()) / max(len(tree.nodes), 1)
+    max_simulations = int(agent_config.get("simulations", 80))
+    progress = min(len(tree.trained_nodes()) / max(max_simulations, 1), 1.0)
     c_param_init = float(agent_config.get("c_param_init", 0.4))
     c_param_final = float(agent_config.get("c_param_final", 0.1))
     return (c_param_init - c_param_final) * (1.0 - progress) + c_param_final

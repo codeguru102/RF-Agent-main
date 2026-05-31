@@ -212,7 +212,8 @@ class OfflineRFAgent:
         return self._maybe_cap_action_plan(planned, num_candidates)
 
     def _current_c_param(self) -> float:
-        progress = len(self.tree.trained_nodes()) / max(len(self.tree.nodes), 1)
+        max_simulations = int(self.agent_config.get("simulations", 80))
+        progress = min(len(self.tree.trained_nodes()) / max(max_simulations, 1), 1.0)
         c_param_init = float(self.agent_config.get("c_param_init", 0.4))
         c_param_final = float(self.agent_config.get("c_param_final", 0.1))
         return (c_param_init - c_param_final) * (1.0 - progress) + c_param_final
