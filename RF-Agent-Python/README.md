@@ -99,13 +99,12 @@ If your offline trainer can only return CSV logs, run `sync` after copying logs 
 The offline agent keeps the RF-Agent search actions:
 
 - `initialize`
-- `mutation_mechanism`
-- `mutation_param`
+- `mutation`
 - `crossover_elite`
 - `tree_reasoning`
 - `different_thought`
 
-After root initialization, each selected trained leaf expands into six pending candidates: one for each unique non-initial action, plus one random extra action sampled from those five.
+After root initialization, each selected trained leaf expands into four pending candidates sampled with action probabilities: `mutation` 30%, `crossover_elite` 30%, `tree_reasoning` 20%, and `different_thought` 20%.
 
 It rebuilds parent/child relationships from candidate metadata, computes RF-Agent-style Q values and UCT scores, includes the self-verification score in selection, selects trained parents for expansion, generates new pending rewards with validation/retry feedback, persists the RF-Agent elite set used by crossover, and exports the best trained reward.
 

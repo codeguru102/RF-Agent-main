@@ -1,4 +1,6 @@
 RF-Agent-Python/tasks/
 RF-Agent-Python/.env
-**/__pycache__
+__pycache__/
 RF-Agent-Python/tasks_1/
+RF-Agent-Matlab/tasks/
+RF-Agent-Matlab/.env

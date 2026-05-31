@@ -15,12 +15,18 @@ from tree import SearchNode, SearchTree
 
 
 ACTION_ORDER = [
-    "mutation_mechanism",
-    "mutation_param",
+    "mutation",
     "crossover_elite",
     "tree_reasoning",
     "different_thought",
 ]
+
+DEFAULT_ACTION_PROBABILITIES = {
+    "mutation": 0.30,
+    "crossover_elite": 0.30,
+    "tree_reasoning": 0.20,
+    "different_thought": 0.20,
+}
 
 
 class OfflineRFAgent:
@@ -42,8 +48,10 @@ class OfflineRFAgent:
         self.tree = tree
         self.feedback_builder = feedback_builder
         self.llm_client = llm_client
-        self.action_weights = agent_config.get("action_weights", {})
-        self.random_extra_action = bool(agent_config.get("random_extra_action", True))
+        self.expansion_size = int(agent_config.get("expansion_size", 4))
+        self.action_probabilities = self._normalize_action_probabilities(
+            agent_config.get("action_probabilities", DEFAULT_ACTION_PROBABILITIES)
+        )
         self.max_try_num = int(agent_config.get("max_try_num", 9))
         self.max_same_try_cnt = int(agent_config.get("max_same_try_cnt", 3))
         self.enable_self_verify = bool(agent_config.get("enable_self_verify", True))
@@ -136,12 +144,12 @@ class OfflineRFAgent:
                 }
             ]
             return None
-        if root_initial_count < initial_size:
-            pending_ids = ", ".join(child.candidate_id for child in self.tree.root.children)
-            raise RuntimeError(
-                "Root has a partial initial expansion. Original RF-Agent creates all initial "
-                f"candidates in one expansion. Finish or remove the partial set first: {pending_ids}"
-            )
+        # if root_initial_count < initial_size:
+        #     pending_ids = ", ".join(child.candidate_id for child in self.tree.root.children)
+        #     raise RuntimeError(
+        #         "Root has a partial initial expansion. Original RF-Agent creates all initial "
+        #         f"candidates in one expansion. Finish or remove the partial set first: {pending_ids}"
+        #     )
 
         if not self.tree.trained_nodes():
             raise RuntimeError(
@@ -223,25 +231,33 @@ class OfflineRFAgent:
         ]
 
     def _full_action_bundle(self) -> List[Tuple[str, int]]:
-        actions: List[Tuple[str, int]] = []
-        for action_type in ACTION_ORDER:
-            if int(self.action_weights.get(action_type, 1)) <= 0:
-                continue
-            actions.append((action_type, 0))
-
-        if self.random_extra_action and actions:
-            random_action_type = self.random.choice([action_type for action_type, _ in actions])
-            extra_index = 1 + max(
-                action_index
-                for action_type, action_index in actions
-                if action_type == random_action_type
-            )
-            actions.append((random_action_type, extra_index))
-
+        action_types = list(self.action_probabilities)
+        weights = [self.action_probabilities[action_type] for action_type in action_types]
+        sampled = self.random.choices(action_types, weights=weights, k=max(self.expansion_size, 0))
+        counts: Dict[str, int] = {}
+        actions = []
+        for action_type in sampled:
+            action_index = counts.get(action_type, 0)
+            counts[action_type] = action_index + 1
+            actions.append((action_type, action_index))
         return actions
 
+    def _normalize_action_probabilities(self, probabilities: Dict[str, float]) -> Dict[str, float]:
+        probabilities = probabilities or DEFAULT_ACTION_PROBABILITIES
+        normalized = {}
+        for action_type in ACTION_ORDER:
+            value = probabilities.get(action_type, DEFAULT_ACTION_PROBABILITIES[action_type])
+            value = max(float(value), 0.0)
+            if value > 0:
+                normalized[action_type] = value
+
+        total = sum(normalized.values())
+        if total <= 0:
+            return dict(DEFAULT_ACTION_PROBABILITIES)
+        return {action_type: value / total for action_type, value in normalized.items()}
+
     def _source_nodes_for_action(self, parent: SearchNode, action_type: str) -> List[SearchNode]:
-        if action_type in {"mutation_mechanism", "mutation_param"}:
+        if action_type in {"mutation", "mutation_mechanism", "mutation_param"}:
             return [parent]
 
         if action_type == "crossover_elite":
@@ -266,6 +282,9 @@ class OfflineRFAgent:
 
         if action_type == "initialize":
             pass
+        elif action_type == "mutation":
+            source = source_nodes[0]
+            user_parts.append(self._format_mutation_prompt(source))
         elif action_type in {"mutation_mechanism", "mutation_param"}:
             prompt_file = "mutation_mechanism.txt" if action_type == "mutation_mechanism" else "mutation_param.txt"
             source = source_nodes[0]
@@ -313,6 +332,25 @@ class OfflineRFAgent:
             reward_signature=self.task_config.get("reward_signature", ""),
             available_variables=variables,
             score_description=score_description,
+        )
+
+    def _format_mutation_prompt(self, source: SearchNode) -> str:
+        return "\n".join(
+            [
+                "Improve the reward with one integrated mutation pass.",
+                "You may change reward mechanisms, add/remove/restructure components, and tune numeric scales, temperatures, tolerances, bonuses, or penalties in the same revision.",
+                "",
+                "Parent design thought:",
+                source.metadata.get("design_thought", ""),
+                "",
+                "Parent reward:",
+                source.candidate.reward_code,
+                "",
+                "Parent training feedback:",
+                self.feedback_builder.build(source.candidate),
+                "",
+                "Focus on a useful combined update, not on preserving a strict boundary between mechanism changes and parameter tuning.",
+            ]
         )
 
     def _format_node_group(self, nodes: List[SearchNode]) -> str:

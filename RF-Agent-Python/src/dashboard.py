@@ -22,6 +22,7 @@ NODE_TEXT_LIMIT = 36
 
 ACTION_LABELS = {
     "initialize": "init",
+    "mutation": "mutation",
     "mutation_mechanism": "mut-mech",
     "mutation_param": "mut-param",
     "crossover_elite": "cross-elite",
