@@ -88,7 +88,7 @@ class CandidateStore:
             match = pattern.match(folder.name)
             if match:
                 max_id = max(max_id, int(match.group(1)))
-        return f"candidate_{max_id + 1:06d}"
+        return f"candidate_{max_id + 1:03d}"
 
     def load_elite_ids(self) -> List[str]:
         elite_path = self.root / "elite_set.json"

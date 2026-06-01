@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -19,6 +20,23 @@ Y_GAP = 76
 MARGIN_X = 40
 MARGIN_Y = 40
 NODE_TEXT_LIMIT = 36
+
+
+@dataclass(frozen=True)
+class DashboardStyle:
+    node_width: int
+    node_height: int
+    x_gap: int
+    y_gap: int
+    margin_x: int
+    margin_y: int
+    text_limit: int
+    title_font: float
+    body_font: float
+    badge_font: float
+    line_step: int
+    pad_x: int
+    compact: bool = False
 
 ACTION_LABELS = {
     "initialize": "init",
@@ -165,12 +183,13 @@ def draw_matplotlib_dashboard(
     import matplotlib.pyplot as plt
     from matplotlib.patches import FancyBboxPatch
 
-    positions = layout_tree(tree.root)
-    max_x = max((x + NODE_WIDTH for x, _ in positions.values()), default=NODE_WIDTH)
-    max_y = max((y + NODE_HEIGHT for _, y in positions.values()), default=NODE_HEIGHT)
+    style = dashboard_style(len(tree.nodes))
+    positions = layout_tree(tree.root, style)
+    max_x = max((x + style.node_width for x, _ in positions.values()), default=style.node_width)
+    max_y = max((y + style.node_height for _, y in positions.values()), default=style.node_height)
 
-    figure_width = max(14, min(34, (max_x + 180) / 150))
-    figure_height = max(8, min(24, (max_y + 140) / 145))
+    figure_width = max(14, min(90, (max_x + 180) / 130))
+    figure_height = max(8, min(60, (max_y + 140) / 125))
     fig = plt.figure(figsize=(figure_width, figure_height), constrained_layout=True)
     fig.canvas.manager.set_window_title(f"RF-Agent Dashboard - {task_name}")
     ax_tree = fig.add_subplot(1, 1, 1)
@@ -182,7 +201,7 @@ def draw_matplotlib_dashboard(
 
     for parent in tree.nodes.values():
         for child in parent.children:
-            draw_edge(ax_tree, positions[parent.candidate_id], positions[child.candidate_id])
+            draw_edge(ax_tree, positions[parent.candidate_id], positions[child.candidate_id], style)
 
     for node in sorted(tree.nodes.values(), key=lambda item: (item.depth, item.candidate_id)):
         draw_node(
@@ -197,6 +216,7 @@ def draw_matplotlib_dashboard(
             pending_ids,
             best_node_id,
             FancyBboxPatch,
+            style,
         )
 
     fig.savefig(figure_path, dpi=180)
@@ -214,20 +234,30 @@ def compute_current_c_param(tree: SearchTree, agent_config: dict) -> float:
     return (c_param_init - c_param_final) * (1.0 - progress) + c_param_final
 
 
-def layout_tree(root: SearchNode):
+def dashboard_style(node_count: int) -> DashboardStyle:
+    if node_count > 140:
+        return DashboardStyle(210, 86, 24, 48, 32, 36, 24, 7.0, 6.0, 5.8, 13, 9, compact=True)
+    if node_count > 70:
+        return DashboardStyle(238, 100, 34, 56, 36, 38, 28, 7.6, 6.7, 6.0, 15, 10, compact=True)
+    if node_count > 32:
+        return DashboardStyle(266, 114, 44, 66, 38, 40, 32, 8.3, 7.2, 6.2, 17, 11, compact=True)
+    return DashboardStyle(NODE_WIDTH, NODE_HEIGHT, X_GAP, Y_GAP, MARGIN_X, MARGIN_Y, NODE_TEXT_LIMIT, 9.0, 8.0, 7.0, 19, 12)
+
+
+def layout_tree(root: SearchNode, style: DashboardStyle):
     leaf_index = 0
     positions = {}
 
     def place(node: SearchNode) -> float:
         nonlocal leaf_index
         if not node.children:
-            x_center = MARGIN_X + leaf_index * (NODE_WIDTH + X_GAP) + NODE_WIDTH / 2
+            x_center = style.margin_x + leaf_index * (style.node_width + style.x_gap) + style.node_width / 2
             leaf_index += 1
         else:
             child_centers = [place(child) for child in node.children]
             x_center = (min(child_centers) + max(child_centers)) / 2
-        y = MARGIN_Y + node.depth * (NODE_HEIGHT + Y_GAP)
-        positions[node.candidate_id] = (int(x_center - NODE_WIDTH / 2), y)
+        y = style.margin_y + node.depth * (style.node_height + style.y_gap)
+        positions[node.candidate_id] = (int(x_center - style.node_width / 2), y)
         return x_center
 
     place(root)
@@ -274,14 +304,14 @@ def node_uct_or_none(node: SearchNode, tree: SearchTree, c_param: float):
     return tree.uct_score(node, c_param)
 
 
-def draw_edge(ax, parent_pos: Tuple[int, int], child_pos: Tuple[int, int]):
+def draw_edge(ax, parent_pos: Tuple[int, int], child_pos: Tuple[int, int], style: DashboardStyle):
     px, py = parent_pos
     cx, cy = child_pos
-    x1 = px + NODE_WIDTH / 2
-    y1 = py + NODE_HEIGHT
-    x2 = cx + NODE_WIDTH / 2
+    x1 = px + style.node_width / 2
+    y1 = py + style.node_height
+    x2 = cx + style.node_width / 2
     y2 = cy
-    ax.plot([x1, x2], [y1, y2], color="#94a3b8", linewidth=1.4, zorder=1)
+    ax.plot([x1, x2], [y1, y2], color="#94a3b8", linewidth=1.15 if style.compact else 1.4, zorder=1)
 
 
 def draw_node(
@@ -296,6 +326,7 @@ def draw_node(
     pending_ids: Iterable[str],
     best_node_id: Optional[str],
     box_cls,
+    style: DashboardStyle,
 ):
     x, y = position
     status = node_status(node)
@@ -305,14 +336,14 @@ def draw_node(
     if node.candidate_id in selected_update_ids:
         edge = "#2563eb"
         width = 3.2
-    if node.candidate_id == best_node_id:
-        edge = "#111827"
-        width = 3.4
+    # if node.candidate_id == best_node_id:
+    #     edge = "#111827"
+    #     width = 3.4
 
     box = box_cls(
         (x, y),
-        NODE_WIDTH,
-        NODE_HEIGHT,
+        style.node_width,
+        style.node_height,
         boxstyle="round,pad=0.02,rounding_size=8",
         facecolor=fill,
         edgecolor=edge,
@@ -322,54 +353,59 @@ def draw_node(
     ax.add_patch(box)
 
     uct = tree.uct_score(node, c_param) if node.candidate_id != "root" and node.is_trained else None
-    score = "n/a" if node.candidate_id == "root" else f"{node.reward_cur:.3f}"
-    q_value = "n/a" if node.candidate_id == "root" else f"{node.q_value:.3f}"
-    uct_text = "n/a" if uct is None else f"{uct:.3f}"
+    score = "n/a" if node.candidate_id == "root" else format_number(node.reward_cur)
+    q_value = "n/a" if node.candidate_id == "root" else format_number(node.q_value)
+    uct_text = "n/a" if uct is None else format_number(uct)
     action = format_action(node.action_type, node.action_index)
 
     lines = [
         node.candidate_id,
         f"{status} | {action}",
-        f"score: {score}  Q: {q_value}",
-        f"UCT: {uct_text}  verify: {node.self_verify_score:.2f}",
-        f"parent: {short_id(node.parent_id)}  visits: {node.visits}",
+        f"R: {score} | Q: {q_value}",
+        f"UCT: {uct_text} | VIS: {node.visits}",
     ]
-    ax.text(
-        x + 12,
-        y + 18,
-        ellipsize(lines[0], NODE_TEXT_LIMIT),
-        fontsize=9,
+    if not style.compact:
+        lines.append(f"verify: {node.self_verify_score:.2f}")
+
+    add_node_text(
+        ax,
+        box,
+        x + style.pad_x,
+        y + 16,
+        ellipsize(lines[0], style.text_limit),
+        fontsize=style.title_font,
         fontweight="bold",
-        va="top",
-        zorder=3,
-        clip_on=True,
     )
     for idx, line in enumerate(lines[1:], start=1):
-        ax.text(
-            x + 12,
-            y + 18 + idx * 19,
-            ellipsize(line, NODE_TEXT_LIMIT),
-            fontsize=8,
-            va="top",
-            zorder=3,
-            clip_on=True,
+        add_node_text(
+            ax,
+            box,
+            x + style.pad_x,
+            y + 16 + idx * style.line_step,
+            ellipsize(line, style.text_limit),
+            fontsize=style.body_font,
         )
 
     badges = []
-    if node.candidate_id == best_node_id:
-        badges.append(("BEST", "#111827", "#ffffff"))
+    # if node.candidate_id == best_node_id:
+    #     badges.append(("BEST", "#111827", "#ffffff"))
     if node.candidate_id in elite_ids:
         badges.append(("ELITE", "#facc15", "#713f12"))
-    if node.candidate_id in pending_ids:
-        badges.append(("TRAIN", "#fde68a", "#78350f"))
-    if node.candidate_id in latest_training_ids:
-        badges.append(("NEW", "#ddd6fe", "#4c1d95"))
+    # if node.candidate_id in pending_ids:
+    #     badges.append(("TRAIN", "#fde68a", "#78350f"))
+    # if node.candidate_id in latest_training_ids:
+    #     badges.append(("NEW", "#ddd6fe", "#4c1d95"))
+    max_badges = 2 if style.compact else 3
     for idx, (label, color, text_color) in enumerate(badges):
-        by = y + 8 + idx * 21
+        if idx >= max_badges:
+            break
+        badge_width = 42 if style.compact else 48
+        badge_height = 14 if style.compact else 16
+        by = y + 7 + idx * (badge_height + 4)
         badge = box_cls(
-            (x + NODE_WIDTH - 60, by),
-            48,
-            16,
+            (x + style.node_width - badge_width - 10, by),
+            badge_width,
+            badge_height,
             boxstyle="round,pad=0.02,rounding_size=4",
             facecolor=color,
             edgecolor="#94a3b8",
@@ -377,7 +413,20 @@ def draw_node(
             zorder=4,
         )
         ax.add_patch(badge)
-        ax.text(x + NODE_WIDTH - 36, by + 8, label, fontsize=7, color=text_color, fontweight="bold", ha="center", va="center", zorder=5)
+        badge.set_clip_path(box)
+        add_node_text(
+            ax,
+            box,
+            x + style.node_width - badge_width / 2 - 10,
+            by + badge_height / 2,
+            label,
+            fontsize=style.badge_font,
+            color=text_color,
+            fontweight="bold",
+            ha="center",
+            va="center",
+            zorder=5,
+        )
 
 
 def node_status(node: SearchNode) -> str:
@@ -400,6 +449,36 @@ def status_fill(status: str) -> str:
     return "#f8fafc"
 
 
+def add_node_text(
+    ax,
+    clip_box,
+    x: float,
+    y: float,
+    text: str,
+    *,
+    fontsize: float,
+    color: str = "#111827",
+    fontweight: str = "normal",
+    ha: str = "left",
+    va: str = "top",
+    zorder: int = 3,
+):
+    artist = ax.text(
+        x,
+        y,
+        text,
+        fontsize=fontsize,
+        color=color,
+        fontweight=fontweight,
+        ha=ha,
+        va=va,
+        zorder=zorder,
+        clip_on=True,
+    )
+    artist.set_clip_path(clip_box)
+    return artist
+
+
 def format_action(action_type, action_index) -> str:
     if not action_type:
         return "root"
@@ -407,6 +486,25 @@ def format_action(action_type, action_index) -> str:
     if action_index is None:
         return label
     return f"{label}[{action_index}]"
+
+
+def format_number(value) -> str:
+    if value == "n/a":
+        return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    abs_number = abs(number)
+    if abs_number >= 1_000_000:
+        return f"{number / 1_000_000:.2f}M"
+    if abs_number >= 10_000:
+        return f"{number / 1_000:.1f}k"
+    if abs_number >= 100:
+        return f"{number:.0f}"
+    if abs_number >= 10:
+        return f"{number:.1f}"
+    return f"{number:.3f}"
 
 
 def ellipsize(value: str, limit: int) -> str:
