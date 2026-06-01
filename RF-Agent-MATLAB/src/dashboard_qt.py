@@ -224,13 +224,13 @@ class NodeCard(QtWidgets.QGraphicsItem):
         painter.drawText(QtCore.QRectF(text_left, 52, NODE_W - text_left - 12, 16),
                          QtCore.Qt.AlignVCenter, f"R {r_txt}    Q {q_txt}")
 
-        painter.setPen(QtGui.QColor(PALETTE["text_muted"]))
-        font.setPointSizeF(8.5)
-        painter.setFont(font)
         uct_txt = "—" if is_root else _fmt(n.get("uct_score"))
-        painter.drawText(QtCore.QRectF(text_left, 72, NODE_W - text_left - 12, 16),
-                         QtCore.Qt.AlignVCenter, f"UCT {uct_txt}    visits {n.get('visits', 0)}")
+        self._draw_uct_line(painter, font, text_left, 72, uct_txt, n.get("visits", 0))
         if not is_root:
+            painter.setPen(QtGui.QColor(PALETTE["text_muted"]))
+            font.setPointSizeF(8.5)
+            font.setBold(False)
+            painter.setFont(font)
             painter.drawText(QtCore.QRectF(text_left, 90, NODE_W - text_left - 12, 16),
                              QtCore.Qt.AlignVCenter, f"verify {_fmt(n.get('self_verify_score'))}")
 
@@ -258,6 +258,35 @@ class NodeCard(QtWidgets.QGraphicsItem):
             painter.setPen(QtGui.QColor("#ffffff"))
             painter.drawText(badge_rect, QtCore.Qt.AlignCenter, label)
             by += 18
+
+    def _draw_uct_line(self, painter, font, left, top, uct_txt, visits):
+        y_rect_h = 18
+        # "UCT" label (muted)
+        font.setPointSizeF(8.5)
+        font.setBold(False)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(PALETTE["text_muted"]))
+        label = "UCT "
+        label_w = QtGui.QFontMetricsF(font).horizontalAdvance(label)
+        painter.drawText(QtCore.QRectF(left, top, label_w, y_rect_h),
+                         QtCore.Qt.AlignVCenter, label)
+
+        # UCT value (bold, emphasized)
+        font.setPointSizeF(11)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(HIGHLIGHT["selected"]))
+        value_w = QtGui.QFontMetricsF(font).horizontalAdvance(uct_txt)
+        painter.drawText(QtCore.QRectF(left + label_w, top - 1, value_w + 6, y_rect_h),
+                         QtCore.Qt.AlignVCenter, uct_txt)
+
+        # visits (muted)
+        font.setPointSizeF(8.5)
+        font.setBold(False)
+        painter.setFont(font)
+        painter.setPen(QtGui.QColor(PALETTE["text_muted"]))
+        painter.drawText(QtCore.QRectF(left + label_w + value_w + 12, top, NODE_W - left - label_w - value_w - 24, y_rect_h),
+                         QtCore.Qt.AlignVCenter, f"visits {visits}")
 
     def hoverEnterEvent(self, event):
         self._hover = True
