@@ -18,6 +18,7 @@ class SearchNode:
     visits: int = 0
     total_reward: float = 0.0
     q_value: float = 0.0
+    q_leaf_value: float = 0.0
     reward_cur: float = -10000.0
     depth: int = 0
 
@@ -68,12 +69,14 @@ class SearchTree:
     def _build(self, candidates: List[Candidate]):
         for candidate in candidates:
             score = self.log_reader.score_summary(candidate.summary)
+            q_leaf_value = self.log_reader.q_value_for_candidate(candidate.folder, score)
             node = SearchNode(
                 candidate=candidate,
                 candidate_id=candidate.candidate_id,
                 parent_id=candidate.parent_id,
                 reward_cur=score,
-                q_value=score,
+                q_value=q_leaf_value,
+                q_leaf_value=q_leaf_value,
             )
             self.nodes[candidate.candidate_id] = node
 
@@ -103,20 +106,21 @@ class SearchTree:
 
         for sim_index, node in enumerate(trained, start=1):
             reward = node.reward_cur
-            self._backpropagate_result(node, reward, sim_index, max_simulations)
+            q_value = node.q_leaf_value
+            self._backpropagate_result(node, reward, q_value, sim_index, max_simulations)
 
-    def _backpropagate_result(self, node: SearchNode, reward: float, sim_index: int, max_simulations: int):
+    def _backpropagate_result(self, node: SearchNode, reward: float, q_value: float, sim_index: int, max_simulations: int):
         node.reward_cur = reward
-        node.q_value = reward
+        node.q_value = q_value
         node.visits += 1
-        node.total_reward += reward
+        node.total_reward += q_value
         self.min_q = min(self.min_q, node.q_value)
         self.max_q = max(self.max_q, node.q_value)
 
         parent = self.nodes.get(node.parent_id or "root")
         while parent and parent is not self.root:
             parent.visits += 1
-            parent.total_reward += reward
+            parent.total_reward += q_value
             q_mean_value = parent.total_reward / parent.visits
             trained_child_qs = [child.q_value for child in parent.children if child.is_trained or child.visits > 0]
             best_child_q = max(trained_child_qs) if trained_child_qs else 0.0

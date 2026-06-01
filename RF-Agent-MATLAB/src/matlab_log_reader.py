@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import ast
 import csv
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
 
 class MatlabLogReader:
-    def __init__(self, score_config: dict, dummy_failure: float = -10000.0):
+    def __init__(self, score_config: dict, dummy_failure: float = -10000.0, q_value_config: Optional[dict] = None):
         self.score_config = score_config
         self.dummy_failure = dummy_failure
+        self.q_value_config = q_value_config or {}
 
     def score_summary(self, summary: Optional[dict]) -> float:
         if not summary:
@@ -33,6 +36,34 @@ class MatlabLogReader:
                 score -= weight * float(summary[field])
 
         return score if maximize else -score
+
+    def q_value_for_candidate(self, candidate_folder: Path, fallback_score: float) -> float:
+        if not self.q_value_config:
+            return fallback_score
+
+        metrics = self.read_eval_metrics(candidate_folder)
+        if metrics is None:
+            return fallback_score
+
+        try:
+            return float(evaluate_metric_formula(metrics, self.q_value_config))
+        except (ValueError, TypeError, SyntaxError):
+            return fallback_score
+
+    def read_eval_metrics(self, candidate_folder: Path) -> Optional[List[float]]:
+        eval_path = Path(candidate_folder) / "logs" / "eval.txt"
+        if not eval_path.exists():
+            return None
+
+        lines = [line.strip() for line in eval_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if not lines:
+            return None
+
+        values = [float(item) for item in re.findall(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?", lines[-1])]
+        num_metrics = int(self.q_value_config.get("num_metrics", len(values)))
+        if len(values) < num_metrics:
+            return None
+        return values[:num_metrics]
 
     def summary_from_csv_logs(self, candidate_folder: Path) -> Dict[str, object]:
         csv_summaries = self.summarize_csv_logs(candidate_folder)
@@ -164,3 +195,56 @@ class MatlabLogReader:
             if isinstance(stats, dict):
                 return stats.get(stat_name)
         return None
+
+
+def evaluate_metric_formula(metrics: List[float], q_value_config: dict) -> float:
+    num_metrics = int(q_value_config.get("num_metrics", len(metrics)))
+    if len(metrics) < num_metrics:
+        raise ValueError("Not enough eval metrics for q_value formula.")
+
+    formula = str(q_value_config.get("calc_formula", "")).strip()
+    if not formula:
+        raise ValueError("Missing q_value calc_formula.")
+
+    variables = {f"m{index}": metrics[index - 1] for index in range(1, num_metrics + 1)}
+    for index in range(1, num_metrics + 1):
+        formula = formula.replace(f"%{index}", f"m{index}")
+
+    for offset, name in enumerate("abcdefghijklmnopqrstuvwxyz", start=1):
+        if offset > num_metrics:
+            break
+        variables[name] = metrics[offset - 1]
+
+    tree = ast.parse(formula, mode="eval")
+    _validate_formula_ast(tree, set(variables))
+    return float(eval(compile(tree, "<q_value_formula>", "eval"), {"__builtins__": {}, "max": max, "min": min, "abs": abs}, variables))
+
+
+def _validate_formula_ast(tree: ast.AST, variable_names: set) -> None:
+    allowed_nodes = (
+        ast.Expression,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Call,
+        ast.Name,
+        ast.Load,
+        ast.Constant,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.Pow,
+        ast.Mod,
+        ast.USub,
+        ast.UAdd,
+    )
+    allowed_calls = {"max", "min", "abs"}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, allowed_nodes):
+            raise ValueError(f"Unsupported q_value formula expression: {type(node).__name__}")
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in allowed_calls:
+                raise ValueError("Only max, min, and abs calls are allowed in q_value formulas.")
+        if isinstance(node, ast.Name) and node.id not in variable_names and node.id not in allowed_calls:
+            raise ValueError(f"Unknown q_value formula variable: {node.id}")

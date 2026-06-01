@@ -43,6 +43,7 @@ def build_context(args):
     log_reader = PythonLogReader(
         task_config.get("score", {}),
         dummy_failure=float(agent_config.get("dummy_failure", -10000.0)),
+        q_value_config=task_config.get("q_value_settings") or task_config.get("fitness_score_settings"),
     )
     candidates = store.scan()
     tree = SearchTree(
