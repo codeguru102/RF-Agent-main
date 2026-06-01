@@ -49,7 +49,7 @@ Each task can use a different set of keys and filenames.
 Each generated reward candidate is stored under the task folder:
 
 ```text
-tasks/<task_name>/candidates/candidate_000001/
+tasks/<task_name>/candidates/candidate_001/
   reward_fcn.py
   description.txt
   metadata.json
@@ -65,7 +65,7 @@ tasks/<task_name>/candidates/candidate_000001/
 
 ```json
 {
-  "candidate_id": "candidate_000001",
+  "candidate_id": "candidate_001",
   "parent_id": null,
   "action_type": "initialize",
   "action_index": 0,

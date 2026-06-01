@@ -48,7 +48,7 @@ Configure which task files are loaded into the LLM context in `task.json`:
 Each generated reward candidate is stored under the task folder:
 
 ```text
-tasks/<task_name>/candidates/candidate_000001/
+tasks/<task_name>/candidates/candidate_001/
   reward_fcn.m
   description.txt
   metadata.json
