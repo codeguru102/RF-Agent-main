@@ -1,20 +1,20 @@
-# RF-Agent-Python
+# RF-Agent
 
-Offline, folder-backed RF-Agent for Python RL training workflows.
+Offline, folder-backed RF-Agent for RL training workflows in both Python and MATLAB.
 
-This project keeps the RF-Agent reward generation/search logic, but replaces IsaacGym live training with an asynchronous Python file contract:
+This project retains the core RF-Agent reward generation and search logic, but replaces IsaacGym live training with a cross-language, asynchronous file-based interface. You can run your RL agent training logic in **either Python or MATLAB** by following a simple contract:
 
 ```text
-RF-Agent-Python reads one task folder
-RF-Agent-Python generates candidate reward_fcn.py files
-your Python trainer trains pending candidates offline
-your Python trainer writes logs and optionally summary files
-RF-Agent-Python reloads the task folder, exports the best reward, and opens a Python dashboard window
+RF-Agent reads a single task folder
+RF-Agent generates candidate reward function files
+Your Python or MATLAB trainer trains pending candidates offline
+Your trainer writes logs and optionally summary files
+RF-Agent reloads the task folder, exports the best reward, and opens a dashboard window
 ```
 
-## Task Folder
+## Task Folder Structure
 
-Each RL task lives in one folder:
+Each RL task resides in a dedicated folder as follows:
 
 ```text
 tasks/<task_name>/
@@ -22,23 +22,23 @@ tasks/<task_name>/
   description.md
   observations.md
   environment.md
-  original_reward.py
+  original_reward.py or original_reward.m
   logs/
   candidates/
   visualization/
-  best_reward_fcn.py
+  best_reward_fcn.py or best_reward_fcn.m
   best_reward_summary.json
 ```
 
-Replace the starter files in [tasks/python_task](tasks/python_task) with your real task description, observation schema, original reward, environment notes, and any reference logs.
+Replace the starter files in [tasks/python_task](tasks/python_task) (or create your own) with your real task description, observation schema, original reward, environment notes, and any reference logs. Use either Python (`.py`) or MATLAB (`.m`) files depending on your RL codebase.
 
 ## Candidate Folder
 
-Each generated reward candidate is stored under the task folder:
+Each generated reward candidate is stored under its task folder:
 
 ```text
 tasks/<task_name>/candidates/candidate_000001/
-  reward_fcn.py
+  reward_fcn.py or reward_fcn.m
   description.txt
   metadata.json
   status.json
@@ -49,7 +49,10 @@ tasks/<task_name>/candidates/candidate_000001/
   summary.json
 ```
 
-`metadata.json` stores RF-Agent tree information:
+- For Python projects, `reward_fcn.py` will be generated.
+- For MATLAB projects, `reward_fcn.m` will be generated.
+
+`metadata.json` stores RF-Agent tree information such as:
 
 ```json
 {
@@ -64,7 +67,7 @@ tasks/<task_name>/candidates/candidate_000001/
 }
 ```
 
-`summary.json` is written by your Python trainer:
+`summary.json` is written by your trainer and should look like:
 
 ```json
 {
@@ -78,13 +81,11 @@ tasks/<task_name>/candidates/candidate_000001/
 }
 ```
 
-The score field used for selection is configured in `task.json`.
-
-If your offline trainer can only return CSV logs, run `sync` after copying logs into each candidate's `logs/` folder. RF-Agent-Python will build `summary.json` from numeric CSV columns and mark those candidates as trained.
+The field used for candidate ranking/selection is determined by your `task.json`. If your trainer (Python or MATLAB) only outputs CSV logs, simply run `sync` after copying logs into each candidate's `logs/` folder. RF-Agent will build `summary.json` from numeric CSV columns and mark those candidates as trained.
 
 ## RF-Agent Logic Preserved
 
-The offline agent keeps the RF-Agent search actions:
+The offline agent retains all RF-Agent search actions:
 
 - `initialize`
 - `mutation_mechanism`
@@ -93,7 +94,7 @@ The offline agent keeps the RF-Agent search actions:
 - `tree_reasoning`
 - `different_thought`
 
-It rebuilds parent/child relationships from candidate metadata, computes RF-Agent-style Q values and UCT scores, includes the self-verification score in selection, selects trained parents for expansion, generates new pending rewards with validation/retry feedback, persists the RF-Agent elite set used by crossover, and exports the best trained reward.
+It rebuilds parent/child relationships from candidate metadata, computes RF-Agent-style Q values and UCT scores, includes self-verification in selection, chooses trained parents for expansion, generates new pending rewards with feedback/validation, persists the RF-Agent elite set used by crossover, and exports the best trained reward.
 
 ## Commands
 
@@ -102,58 +103,67 @@ Inspect current task state:
 ```bash
 python src/main.py --mode inspect --task-dir tasks/python_task
 ```
+or (for a MATLAB task named `matlab_task`):
+```bash
+python src/main.py --mode inspect --task-dir tasks/matlab_task
+```
 
 Generate candidate rewards:
 
 ```bash
 python src/main.py --mode generate --task-dir tasks/python_task --num-candidates 8
+# or for MATLAB:
+python src/main.py --mode generate --task-dir tasks/matlab_task --num-candidates 8
 ```
 
-Sync CSV-only offline logs into scoreable summaries:
+Sync CSV-only offline logs into summary:
 
 ```bash
 python src/main.py --mode sync --task-dir tasks/python_task
+python src/main.py --mode sync --task-dir tasks/matlab_task
 ```
 
 No-API smoke test:
 
 ```bash
 python src/main.py --mode generate --task-dir tasks/python_task --num-candidates 2 --dry-run
+# or for MATLAB:
+python src/main.py --mode generate --task-dir tasks/matlab_task --num-candidates 2 --dry-run
 ```
 
-There is no separate visualize option. `inspect`, `generate`, and the worker template open a Python dashboard window before ending. They also write:
+Visualization is always handled automatically: `inspect`, `generate`, and the supplied worker templates open a dashboard window before exiting, and write:
 
 ```text
 tasks/<task_name>/visualization/tree.json
 tasks/<task_name>/visualization/tree_dashboard.png
 ```
 
-The dashboard shows the whole search tree, parent/child relationships, node status, reward score, Q value, visits, UCT score, selected update parent, selected training candidates, the persisted RF-Agent elite set, and the final best reward function emphasized. `elite_max_length` caps the persisted crossover pool; `dashboard_elite_max` only caps how many persisted elite nodes are displayed.
+The dashboard presents the entire search tree, parent/child relationships, candidate status, reward score, Q value, visits, UCT score, selected update parent, selected candidates for training, the persisted elite set, and the emphasized best reward function. Tune `elite_max_length` for the candidate pool, and `dashboard_elite_max` for displayed elite nodes.
 
-When at least one trained candidate exists, the best reward is also exported to:
+When at least one trained candidate exists, the best reward is also exported as:
 
 ```text
-tasks/<task_name>/best_reward_fcn.py
+tasks/<task_name>/best_reward_fcn.py or best_reward_fcn.m
 tasks/<task_name>/best_reward_summary.json
 ```
 
-## Python Trainer Worker
+## RL Trainer Worker (Python or MATLAB)
 
-Your Python trainer should:
+Your RL trainer (Python or MATLAB) should:
 
 1. Scan `tasks/<task_name>/candidates/candidate_*`.
 2. Find candidates whose `status.json` has `"status": "pending"`.
-3. Train/evaluate using `reward_fcn.py`.
+3. Train/evaluate using the generated reward function (`reward_fcn.py` or `reward_fcn.m`).
 4. Write `logs/train.csv` and/or `logs/eval.csv`.
-5. Write `summary.json`, or run `python src/main.py --mode sync` to infer it from CSV logs.
+5. Write `summary.json`, or run `python src/main.py --mode sync` to infer summaries from CSV logs.
 6. Update `status.json` to `"trained"` or `"failed"`; `sync` can also mark candidates with logs as trained.
-7. The worker template opens the dashboard before ending. You can also run `python src/main.py --mode inspect --task-dir tasks/<task_name>` to export the best reward and redraw the dashboard.
+7. (Optional) Use the supplied worker templates (see below) to automate running. You can also run `python src/main.py --mode inspect --task-dir tasks/<task_name>` to export the best reward and refresh the dashboard.
 
-See [python/run_pending_candidates_template.py](python/run_pending_candidates_template.py) for a simple worker template.
+See [python/run_pending_candidates_template.py](python/run_pending_candidates_template.py) for a Python worker and [matlab/run_pending_candidates_template.m](matlab/run_pending_candidates_template.m) for a MATLAB worker.
 
-## OpenAI Setup
+## OpenAI API Setup
 
-Set an API key before non-dry-run generation:
+Set an API key before running non-dry-run candidate generation:
 
 ```bash
 set OPENAI_API_KEY=your_key_here
@@ -164,3 +174,5 @@ On PowerShell:
 ```powershell
 $env:OPENAI_API_KEY = "your_key_here"
 ```
+
+You can now use RF-Agent for folder-backed RL reward search in your Python **or** MATLAB projects.
