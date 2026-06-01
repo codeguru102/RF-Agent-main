@@ -211,8 +211,19 @@ class SearchTree:
     def min_max_q(self):
         return self.min_q, self.max_q
 
+    def sibling_min_max_q(self, node: SearchNode):
+        parent = self.nodes.get(node.parent_id or "root", self.root)
+        sibling_q_values = [
+            child.q_value
+            for child in parent.children
+            if child.is_trained or child.visits > 0
+        ]
+        if not sibling_q_values:
+            return self.min_max_q()
+        return min(sibling_q_values), max(sibling_q_values)
+
     def uct_score(self, node: SearchNode, c_param: float) -> float:
-        q_min, q_max = self.min_max_q()
+        q_min, q_max = self.sibling_min_max_q(node)
         eps = 1e-8
         q_norm = (node.q_value - q_min) / (q_max - q_min + eps)
         parent = self.nodes.get(node.parent_id or "root", self.root)

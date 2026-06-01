@@ -2,7 +2,7 @@
   "model": "gpt-5.5",
   "temperature": 1.0,
   "simulations": 80,
-  "initial_size": 6,
+  "initial_size": 4,
   "tree_max_depth": 16,
   "elite_max_length": 10,
   "elite_control_num": 4,
