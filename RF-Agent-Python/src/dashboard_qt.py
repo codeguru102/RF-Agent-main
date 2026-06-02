@@ -7,9 +7,10 @@ interactive QGraphicsView with smooth wheel-zoom and drag-to-pan.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -128,15 +129,128 @@ def _layout(nodes: List[dict], edges: List[dict]) -> Dict[str, QtCore.QPointF]:
 
 
 # ----------------------------------------------------------------------------
+# Disk persistence for node removal / re-parenting
+# ----------------------------------------------------------------------------
+def candidates_dir_for(tree_json_path) -> Optional[Path]:
+    """Derive <task>/candidates from <task>/visualization/tree.json."""
+    path = Path(tree_json_path).resolve()
+    candidate = path.parent.parent / "candidates"
+    return candidate if candidate.is_dir() else None
+
+
+def _scan_candidate_folders(candidates_dir: Path) -> Dict[str, Path]:
+    """Map candidate_id -> folder by reading each metadata.json."""
+    mapping: Dict[str, Path] = {}
+    for folder in sorted(Path(candidates_dir).glob("candidate_*")):
+        meta_path = folder / "metadata.json"
+        if not folder.is_dir() or not meta_path.exists():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        mapping[meta.get("candidate_id", folder.name)] = folder
+    return mapping
+
+
+def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[str], List[str]]:
+    """Re-parent children to the removed node's parent and archive its folder.
+
+    Returns (new_parent_id, child_ids). Edits the children's metadata.json on
+    disk, moves the removed candidate folder into candidates/_removed/, and
+    cleans up elite_set.json / latest_generation.json references.
+    """
+    candidates_dir = Path(candidates_dir)
+    folders = _scan_candidate_folders(candidates_dir)
+
+    target_folder = folders.get(node_id)
+    parent_id: Optional[str] = None
+    if target_folder is not None:
+        meta = json.loads((target_folder / "metadata.json").read_text(encoding="utf-8"))
+        parent_id = meta.get("parent_id")
+
+    child_ids: List[str] = []
+    for cid, folder in folders.items():
+        meta_path = folder / "metadata.json"
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if meta.get("parent_id") == node_id:
+            meta["parent_id"] = parent_id
+            sources = meta.get("source_node_ids")
+            if isinstance(sources, list):
+                meta["source_node_ids"] = [parent_id if s == node_id else s for s in sources]
+            meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            child_ids.append(cid)
+
+    if target_folder is not None and target_folder.exists():
+        trash = candidates_dir / "_removed"
+        trash.mkdir(exist_ok=True)
+        destination = trash / target_folder.name
+        if destination.exists():
+            shutil.rmtree(destination, ignore_errors=True)
+        shutil.move(str(target_folder), str(destination))
+
+    _clean_reference_files(candidates_dir, node_id, parent_id)
+    return parent_id, child_ids
+
+
+def _clean_reference_files(candidates_dir: Path, node_id: str, parent_id: Optional[str]) -> None:
+    elite_path = candidates_dir / "elite_set.json"
+    if elite_path.exists():
+        try:
+            data = json.loads(elite_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("candidate_ids"), list):
+                data["candidate_ids"] = [c for c in data["candidate_ids"] if c != node_id]
+                elite_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            elif isinstance(data, list):
+                cleaned = [c for c in data if c != node_id]
+                elite_path.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
+    latest_path = candidates_dir / "latest_generation.json"
+    if latest_path.exists():
+        try:
+            data = json.loads(latest_path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                kept = []
+                for decision in data:
+                    if not isinstance(decision, dict):
+                        kept.append(decision)
+                        continue
+                    if decision.get("candidate_id") == node_id:
+                        continue  # drop the removed candidate's own decision
+                    for key in ("parent_id", "selected_tree_node_id"):
+                        if decision.get(key) == node_id:
+                            decision[key] = parent_id
+                    kept.append(decision)
+                latest_path.write_text(json.dumps(kept, indent=2), encoding="utf-8")
+        except (ValueError, OSError):
+            pass
+
+
+# ----------------------------------------------------------------------------
 # Graphics
 # ----------------------------------------------------------------------------
 class NodeCard(QtWidgets.QGraphicsItem):
     def __init__(self, node: dict):
         super().__init__()
         self.node = node
+        self.on_remove = None  # callback(candidate_id) set by the window
         self.setAcceptHoverEvents(True)
         self.setToolTip(self._tooltip())
         self._hover = False
+
+    def contextMenuEvent(self, event):
+        if self.node.get("candidate_id") == "root":
+            return
+        menu = QtWidgets.QMenu()
+        remove_action = menu.addAction("Remove node  (reconnect children to parent)")
+        chosen = menu.exec_(event.screenPos())
+        if chosen == remove_action and callable(self.on_remove):
+            self.on_remove(self.node["candidate_id"])
 
     def boundingRect(self) -> QtCore.QRectF:
         return QtCore.QRectF(-2, -2, NODE_W + 4, NODE_H + 6)
@@ -359,9 +473,11 @@ class TreeView(QtWidgets.QGraphicsView):
 
 
 class DashboardWindow(QtWidgets.QMainWindow):
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, tree_json_path=None):
         super().__init__()
         self.data = data
+        self.tree_json_path = Path(tree_json_path) if tree_json_path else None
+        self.candidates_dir = candidates_dir_for(tree_json_path) if tree_json_path else None
         task = data.get("task_name", "task")
         self.setWindowTitle(f"RF-Agent Dashboard — {task}")
         self.resize(1480, 900)
@@ -370,8 +486,10 @@ class DashboardWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        self.main_layout = layout
 
-        layout.addWidget(self._build_header(data))
+        self.header_widget = self._build_header(data)
+        layout.addWidget(self.header_widget)
 
         self.scene = QtWidgets.QGraphicsScene()
         self.scene.setBackgroundBrush(QtGui.QColor(PALETTE["canvas"]))
@@ -462,7 +580,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             h.addWidget(text)
             h.addSpacing(14)
         h.addStretch(1)
-        hint = QtWidgets.QLabel("Scroll to zoom · drag to pan · hover a card for details")
+        hint = QtWidgets.QLabel("Scroll to zoom · drag to pan · right-click a node to remove")
         hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")
         h.addWidget(hint)
         return bar
@@ -488,6 +606,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             if pos is None:
                 continue
             card = NodeCard(node)
+            card.on_remove = self.request_remove
             card.setPos(pos)
             card.setZValue(2)
             self.scene.addItem(card)
@@ -511,6 +630,90 @@ class DashboardWindow(QtWidgets.QMainWindow):
         pen.setJoinStyle(QtCore.Qt.RoundJoin)
         item = self.scene.addPath(path, pen)
         item.setZValue(1)
+
+    # -- node removal ----------------------------------------------------------
+    def request_remove(self, node_id: str):
+        if node_id == "root":
+            return
+        node = next((n for n in self.data.get("nodes", []) if n["candidate_id"] == node_id), None)
+        if node is None:
+            return
+        parent_id = node.get("parent_id")
+        children = [e["to"] for e in self.data.get("edges", []) if e["from"] == node_id]
+
+        target = parent_id or "root"
+        if children:
+            detail = (f"Remove <b>{node_id}</b>?<br><br>"
+                      f"Its {len(children)} child node(s) will be reconnected to "
+                      f"<b>{target}</b>.")
+        else:
+            detail = f"Remove <b>{node_id}</b>? It has no children."
+
+        persist_note = ("" if self.candidates_dir
+                        else "<br><br><i>Note: candidate folder not found; this view "
+                             "will update but the change won't be saved to disk.</i>")
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Remove node")
+        box.setTextFormat(QtCore.Qt.RichText)
+        box.setIcon(QtWidgets.QMessageBox.Warning)
+        box.setText(detail + persist_note)
+        box.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
+        if box.exec_() != QtWidgets.QMessageBox.Yes:
+            return
+
+        if self.candidates_dir:
+            try:
+                disk_parent, disk_children = remove_node_persist(self.candidates_dir, node_id)
+                parent_id = disk_parent
+                if disk_children:
+                    children = disk_children
+            except Exception as exc:  # pragma: no cover - filesystem edge cases
+                QtWidgets.QMessageBox.critical(
+                    self, "Remove failed", f"Could not update files on disk:\n{exc}")
+                return
+
+        self._apply_removal_in_memory(node_id, parent_id, children)
+        self._persist_tree_json()
+        self._refresh_view()
+
+    def _apply_removal_in_memory(self, node_id, parent_id, children):
+        new_parent = parent_id or "root"
+        child_set = set(children)
+        self.data["nodes"] = [n for n in self.data.get("nodes", [])
+                              if n["candidate_id"] != node_id]
+        for n in self.data["nodes"]:
+            if n["candidate_id"] in child_set:
+                n["parent_id"] = parent_id
+                n["depth"] = max(int(n.get("depth", 1)) - 1, 0)
+        edges = [e for e in self.data.get("edges", [])
+                 if e["from"] != node_id and e["to"] != node_id]
+        for child in children:
+            edges.append({"from": new_parent, "to": child})
+        self.data["edges"] = edges
+        if isinstance(self.data.get("elite_candidates"), list):
+            self.data["elite_candidates"] = [
+                c for c in self.data["elite_candidates"]
+                if c.get("candidate_id") != node_id]
+
+    def _persist_tree_json(self):
+        if not self.tree_json_path:
+            return
+        try:
+            self.tree_json_path.write_text(
+                json.dumps(self.data, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _refresh_view(self):
+        transform = self.view.transform()
+        self.scene.clear()
+        self._build_scene(self.data)
+        new_header = self._build_header(self.data)
+        self.main_layout.replaceWidget(self.header_widget, new_header)
+        self.header_widget.deleteLater()
+        self.header_widget = new_header
+        self.view.setTransform(transform)
 
     # -- slots -----------------------------------------------------------------
     def _zoom_in(self):
@@ -547,7 +750,7 @@ def show_dashboard_window(tree_json_path, block: bool = True) -> Optional[Dashbo
     owns_app = app is None
     if owns_app:
         app = QtWidgets.QApplication(sys.argv[:1])
-    window = DashboardWindow(data)
+    window = DashboardWindow(data, tree_json_path=tree_json_path)
     window.show()
     if owns_app and block:
         app.exec_()
