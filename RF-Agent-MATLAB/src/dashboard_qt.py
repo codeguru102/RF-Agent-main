@@ -247,7 +247,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
         if self.node.get("candidate_id") == "root":
             return
         menu = QtWidgets.QMenu()
-        remove_action = menu.addAction("Remove node  (reconnect children to parent)")
+        remove_action = menu.addAction("Remove node")
         chosen = menu.exec_(event.screenPos())
         if chosen == remove_action and callable(self.on_remove):
             self.on_remove(self.node["candidate_id"])
