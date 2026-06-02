@@ -176,8 +176,9 @@ class NodeCard(QtWidgets.QGraphicsItem):
         border = QtGui.QColor(PALETTE["card_border"])
         border_w = 1.2
         if n.get("is_best"):
-            border = QtGui.QColor(HIGHLIGHT["best"])
-            border_w = 2.6
+            # border = QtGui.QColor(HIGHLIGHT["best"])
+            # border_w = 2.6
+            pass
         elif n.get("selected_for_update"):
             border = QtGui.QColor(HIGHLIGHT["selected"])
             border_w = 2.4
@@ -237,7 +238,8 @@ class NodeCard(QtWidgets.QGraphicsItem):
         # badges
         badges = []
         if n.get("is_best"):
-            badges.append(("BEST", HIGHLIGHT["best"]))
+            # badges.append(("BEST", HIGHLIGHT["best"]))
+            pass
         if n.get("is_elite"):
             badges.append(("ELITE", HIGHLIGHT["elite"]))
         if n.get("selected_for_training"):

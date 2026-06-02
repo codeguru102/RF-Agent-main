@@ -144,12 +144,7 @@ class OfflineRFAgent:
                 }
             ]
             return None
-        if root_initial_count < initial_size:
-            pending_ids = ", ".join(child.candidate_id for child in self.tree.root.children)
-            raise RuntimeError(
-                "Root has a partial initial expansion. Original RF-Agent creates all initial "
-                f"candidates in one expansion. Finish or remove the partial set first: {pending_ids}"
-            )
+       
 
         if not self.tree.trained_nodes():
             raise RuntimeError(
@@ -160,6 +155,8 @@ class OfflineRFAgent:
         node = self.tree.root
         path = [{"node_id": "root", "uct_score": None, "reason": "start"}]
         max_depth = int(self.agent_config.get("tree_max_depth", 16))
+
+        print(node)
         while node.children and node.depth < max_depth:
             pending_children = [child for child in node.children if child.candidate and child.candidate.is_pending]
             if pending_children:
