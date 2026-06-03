@@ -21,18 +21,14 @@ from tree import SearchTree
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Offline RF-Agent for Python training logs.")
-    parser.add_argument("--mode", choices=["inspect", "generate", "sync"], default="inspect")
-    parser.add_argument(
-        "--num-candidates",
-        type=int,
-        default=0,
-        help="Deprecated. RF-Agent expansion always creates the full action bundle.",
-    )
     parser.add_argument("--task-dir", default="tasks/python_task")
     parser.add_argument("--agent-config", default="configs/agent.json")
     parser.add_argument("--prompt-dir", default="prompts")
     parser.add_argument("--dry-run", action="store_true", help="Generate placeholder rewards without calling an LLM.")
     parser.add_argument("--debug", action="store_true", help="Show full Python tracebacks on failure.")
+    # Internal actions triggered by the dashboard Sync / Generate buttons. Not for manual use.
+    parser.add_argument("--internal-action", dest="internal_action", choices=["sync", "generate"],
+                        default=None, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
@@ -90,14 +86,9 @@ def inspect_state(tree: SearchTree, task_name: str, elite_ids: List[str], elite_
 def main(args=None):
     args = args or parse_args()
     task_config, agent_config, store, tree, agent = build_context(args)
+    action = getattr(args, "internal_action", None)
 
-    if args.mode == "inspect":
-        elite_limit = int(agent_config.get("dashboard_elite_max", agent_config.get("elite_control_num", 4)))
-        inspect_state(tree, task_config["task_name"], store.load_elite_ids(), elite_limit)
-        render_and_print(args, task_config, agent_config, store, tree)
-        return
-
-    if args.mode == "sync":
+    if action == "sync":
         synced = sync_candidate_summaries(store, tree.log_reader)
         print(f"Synced candidates from CSV logs: {len(synced)}")
         for candidate_id in synced:
@@ -109,24 +100,26 @@ def main(args=None):
             float(agent_config.get("dummy_failure", -10000.0)),
             max_simulations=int(agent_config.get("simulations", 80)),
         )
-        render_and_print(args, task_config, agent_config, store, tree)
+        render_and_print(args, task_config, agent_config, store, tree, show_window=False)
         return
 
-    if args.num_candidates > 0:
-        raise RuntimeError(
-            "Original RF-Agent expansion creates the full action bundle at once. "
-            "Run without --num-candidates to keep expansion logic identical."
-        )
+    if action == "generate":
+        created = agent.generate_batch(0)
+        save_json(store.root / "latest_generation.json", agent.last_generation_decisions)
+        print("Created pending candidates:")
+        for candidate_id in created:
+            print(f"- {candidate_id}")
+        render_and_print(args, task_config, agent_config, store, agent.tree,
+                         agent.last_generation_decisions, show_window=False)
+        return
 
-    created = agent.generate_batch(args.num_candidates)
-    save_json(store.root / "latest_generation.json", agent.last_generation_decisions)
-    print("Created pending candidates:")
-    for candidate_id in created:
-        print(f"- {candidate_id}")
-    render_and_print(args, task_config, agent_config, store, agent.tree, agent.last_generation_decisions)
+    # Default: open the interactive dashboard window directly.
+    elite_limit = int(agent_config.get("dashboard_elite_max", agent_config.get("elite_control_num", 4)))
+    inspect_state(tree, task_config["task_name"], store.load_elite_ids(), elite_limit)
+    render_and_print(args, task_config, agent_config, store, tree, show_window=True)
 
 
-def render_and_print(args, task_config, agent_config, store, tree, latest_decisions=None):
+def render_and_print(args, task_config, agent_config, store, tree, latest_decisions=None, show_window=True):
     if latest_decisions is None:
         latest_path = store.root / "latest_generation.json"
         latest_decisions = load_json(latest_path) if latest_path.exists() else []
@@ -142,7 +135,7 @@ def render_and_print(args, task_config, agent_config, store, tree, latest_decisi
         latest_decisions=latest_decisions,
         elite_node_ids=store.load_elite_ids(),
         best_node_id=best_paths.get("candidate_id"),
-        show_window=True,
+        show_window=show_window,
     )
     print("")
     if best_paths:

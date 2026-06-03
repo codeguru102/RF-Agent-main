@@ -7,6 +7,7 @@ interactive QGraphicsView with smooth wheel-zoom and drag-to-pan.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -52,6 +53,56 @@ Y_GAP = 78
 # ----------------------------------------------------------------------------
 # Formatting helpers
 # ----------------------------------------------------------------------------
+def _format_model_label(model: str) -> str:
+    model = (model or "unknown").strip()
+    lowered = model.lower()
+    if lowered.startswith("gpt-"):
+        return f"GPT{model[4:]}"
+    return model
+
+
+def _load_agent_model(package_root: Path) -> str:
+    config_path = package_root / "configs" / "agent.json"
+    if not config_path.exists():
+        return "unknown"
+    try:
+        return json.loads(config_path.read_text(encoding="utf-8")).get("model", "unknown")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return "unknown"
+
+
+def _parse_latest_progress(output: str) -> dict:
+    for line in reversed(output.splitlines()):
+        if not line.startswith("PROGRESS "):
+            continue
+        tokens = {}
+        for part in line.split()[1:]:
+            if "=" in part:
+                key, value = part.split("=", 1)
+                tokens[key] = value
+        return tokens
+    return {}
+
+
+def _generation_progress_label(tokens: dict, fallback_model: str) -> str:
+    from_id = tokens.get("from", "root")
+    model = _format_model_label(tokens.get("model", fallback_model))
+    step = int(tokens.get("step", "0"))
+    total = int(tokens.get("total", "0"))
+    action = tokens.get("action")
+    cid = tokens.get("id")
+    phase = tokens.get("phase")
+
+    main = f"Generating using {model} (from agent.json)"
+    if phase == "generating" and action and total > 0:
+        return f"{main}\n\nfrom {from_id} · {action}   ({step + 1} / {total})"
+    if cid and action and total > 0:
+        return f"{main}\n\nCreated {cid}   ({step} / {total} · {action})"
+    if total > 0:
+        return f"{main}\n\nfrom {from_id}   ({step} / {total})"
+    return main
+
+
 def _short_id(candidate_id: str) -> str:
     if not candidate_id:
         return "-"
@@ -194,6 +245,44 @@ def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[st
 
     _clean_reference_files(candidates_dir, node_id, parent_id)
     return parent_id, child_ids
+
+
+def scan_result_folders(root: Path) -> List[dict]:
+    """Find immediate sub-folders that hold .csv logs and/or an eval.txt file."""
+    results: List[dict] = []
+    for folder in sorted(Path(root).iterdir()):
+        if not folder.is_dir():
+            continue
+        csvs = list(folder.glob("*.csv"))
+        eval_files = [p for p in folder.iterdir() if p.is_file() and p.name.lower() == "eval.txt"]
+        if not csvs and not eval_files:
+            continue
+        results.append({
+            "name": folder.name,
+            "path": folder,
+            "csv_count": len(csvs),
+            "has_eval": bool(eval_files),
+        })
+    return results
+
+
+def copy_result_into_candidate(result_folder: Path, candidate_folder: Path) -> List[str]:
+    """Copy *.csv and eval.txt from a result folder into <candidate>/logs/."""
+    logs_dir = Path(candidate_folder) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    copied: List[str] = []
+    for item in sorted(Path(result_folder).iterdir()):
+        if not item.is_file():
+            continue
+        if item.suffix.lower() == ".csv" or item.name.lower() == "eval.txt":
+            shutil.copy2(item, logs_dir / item.name)
+            copied.append(item.name)
+    return copied
+
+
+def _digits(text: str) -> Optional[int]:
+    match = re.findall(r"\d+", str(text))
+    return int(match[-1]) if match else None
 
 
 def _clean_reference_files(candidates_dir: Path, node_id: str, parent_id: Optional[str]) -> None:
@@ -478,6 +567,8 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.data = data
         self.tree_json_path = Path(tree_json_path) if tree_json_path else None
         self.candidates_dir = candidates_dir_for(tree_json_path) if tree_json_path else None
+        self._active_proc = None
+        self._active_busy = None
         task = data.get("task_name", "task")
         self.setWindowTitle(f"RF-Agent Dashboard — {task}")
         self.resize(1480, 900)
@@ -534,6 +625,30 @@ class DashboardWindow(QtWidgets.QMainWindow):
             h.addWidget(self._chip(label, value))
 
         h.addSpacing(12)
+        generate_btn = QtWidgets.QPushButton("✦  Generate candidates")
+        generate_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        generate_btn.setFixedHeight(32)
+        generate_btn.setMinimumWidth(168)
+        generate_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #2563eb; border: 1px solid #1d4ed8;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 14px; }"
+            "QPushButton:hover { background: #3b82f6; }")
+        generate_btn.clicked.connect(self._open_generate)
+        h.addWidget(generate_btn)
+
+        h.addSpacing(8)
+        sync_btn = QtWidgets.QPushButton("⟳  Sync trained results")
+        sync_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        sync_btn.setFixedHeight(32)
+        sync_btn.setMinimumWidth(168)
+        sync_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #059669; border: 1px solid #047857;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 14px; }"
+            "QPushButton:hover { background: #10b981; }")
+        sync_btn.clicked.connect(self._open_sync_dialog)
+        h.addWidget(sync_btn)
+
+        h.addSpacing(12)
         for text, slot, primary in [("−", self._zoom_out, False), ("+", self._zoom_in, False),
                                      ("Fit", self._fit, True), ("Reset", self._reset, False)]:
             h.addWidget(self._button(text, slot, primary))
@@ -580,7 +695,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             h.addWidget(text)
             h.addSpacing(14)
         h.addStretch(1)
-        hint = QtWidgets.QLabel("Scroll to zoom · drag to pan · right-click a node to remove")
+        hint = QtWidgets.QLabel("Scroll to zoom · drag to pan · right-click a node to remove · Generate / Sync above")
         hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")
         h.addWidget(hint)
         return bar
@@ -630,6 +745,203 @@ class DashboardWindow(QtWidgets.QMainWindow):
         pen.setJoinStyle(QtCore.Qt.RoundJoin)
         item = self.scene.addPath(path, pen)
         item.setZValue(1)
+
+    # -- sync trained results --------------------------------------------------
+    def _open_sync_dialog(self):
+        if not self.candidates_dir:
+            QtWidgets.QMessageBox.warning(
+                self, "Sync unavailable",
+                "Candidate folder not found for this view, so results cannot be "
+                "synced to disk.")
+            return
+
+        root = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select the folder that contains the trained result folders")
+        if not root:
+            return
+
+        results = scan_result_folders(Path(root))
+        if not results:
+            QtWidgets.QMessageBox.information(
+                self, "No results found",
+                "The selected folder has no sub-folders containing .csv logs or "
+                "eval.txt files.\n\nExpected layout:\n  <selected folder>/\n    "
+                "<result_1>/  (csv logs + eval.txt)\n    <result_2>/  ...")
+            return
+
+        pending = [n["candidate_id"] for n in self.data.get("nodes", [])
+                   if n.get("status") in ("pending", "running")]
+        if not pending:
+            QtWidgets.QMessageBox.information(
+                self, "Nothing to sync", "There are no pending nodes to match.")
+            return
+
+        dialog = SyncMatchDialog(results, pending, self)
+        if dialog.exec_() != QtWidgets.QDialog.Accepted:
+            return
+        mapping = dialog.mapping()  # candidate_id -> result_path
+        if not mapping:
+            return
+
+        # Copy the matched result folders into each candidate's logs/ dir.
+        folders = _scan_candidate_folders(self.candidates_dir)
+        copied_report = []
+        for candidate_id, result_path in mapping.items():
+            folder = folders.get(candidate_id)
+            if folder is None:
+                copied_report.append(f"{candidate_id}: candidate folder not found, skipped")
+                continue
+            copied = copy_result_into_candidate(result_path, folder)
+            copied_report.append(f"{candidate_id}: copied {len(copied)} file(s)")
+
+        self._run_engine_action(
+            action="sync",
+            busy_text="Copying logs and syncing trained results…",
+            title="Sync",
+            extra_report=copied_report,
+        )
+
+    # -- generate candidates ---------------------------------------------------
+    def _open_generate(self):
+        if not self.candidates_dir:
+            QtWidgets.QMessageBox.warning(
+                self, "Generate unavailable",
+                "Candidate folder not found for this view, so new candidates "
+                "cannot be created.")
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Generate candidates")
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setText(
+            "Generate a new batch of reward candidates from the current tree?\n\n"
+            "This calls the LLM and may take a little while. New pending nodes "
+            "will appear when it finishes.")
+        box.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(QtWidgets.QMessageBox.Yes)
+        if box.exec_() != QtWidgets.QMessageBox.Yes:
+            return
+        package_root = Path(__file__).resolve().parent.parent
+        model_label = _format_model_label(_load_agent_model(package_root))
+        self._run_engine_action(
+            action="generate",
+            busy_text=f"Generating using {model_label} (from agent.json)",
+            title="Generate",
+            extra_report=None,
+        )
+
+    # -- shared engine runner (async, non-blocking) ----------------------------
+    def _run_engine_action(self, action, busy_text, title, extra_report=None):
+        package_root = Path(__file__).resolve().parent.parent
+        main_py = package_root / "src" / "main.py"
+        if not main_py.exists():
+            QtWidgets.QMessageBox.critical(
+                self, f"{title} failed", "Could not locate the engine (src/main.py).")
+            return
+        if getattr(self, "_active_proc", None) is not None:
+            QtWidgets.QMessageBox.information(
+                self, "Please wait", "Another operation is still running.")
+            return
+
+        task_dir = self.candidates_dir.parent
+        self._progress_fallback_model = _load_agent_model(package_root)
+        proc = QtCore.QProcess(self)
+        proc.setWorkingDirectory(str(package_root))
+        env = QtCore.QProcessEnvironment.systemEnvironment()
+        env.insert("RF_AGENT_NO_DASHBOARD", "1")
+        env.insert("PYTHONUNBUFFERED", "1")  # stream child stdout for live progress
+        proc.setProcessEnvironment(env)
+
+        busy = QtWidgets.QProgressDialog(busy_text, None, 0, 0, self)
+        busy.setWindowTitle(title)
+        busy.setWindowModality(QtCore.Qt.WindowModal)
+        busy.setMinimumWidth(420)
+        busy.setMinimumDuration(0)
+        busy.setCancelButton(None)
+        busy.setAutoClose(False)
+        busy.setAutoReset(False)
+        busy.show()
+
+        self._active_proc = proc
+        self._active_busy = busy
+        self._proc_out_buffer = ""
+
+        def on_ready():
+            chunk = bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
+            self._proc_out_buffer += chunk
+            self._update_progress(
+                self._proc_out_buffer,
+                busy,
+                busy_text,
+                action=action,
+                fallback_model=getattr(self, "_progress_fallback_model", "unknown"),
+            )
+
+        def on_finished(code, _status):
+            self._proc_out_buffer += bytes(proc.readAllStandardOutput()).decode("utf-8", "replace")
+            busy.close()
+            out = self._proc_out_buffer
+            err = bytes(proc.readAllStandardError()).decode("utf-8", "replace")
+            self._active_proc = None
+            self._active_busy = None
+            self._progress_fallback_model = None
+            if code != 0:
+                QtWidgets.QMessageBox.critical(
+                    self, f"{title} failed",
+                    f"The {action} step returned an error:\n\n{(err or out)[-1800:]}")
+                return
+            self._reload_from_disk()
+            self._show_action_result(title, action, out, extra_report)
+
+        proc.readyReadStandardOutput.connect(on_ready)
+        proc.finished.connect(on_finished)
+        proc.start(sys.executable,
+                   [str(main_py), "--internal-action", action, "--task-dir", str(task_dir)])
+
+    @staticmethod
+    def _update_progress(
+        output: str,
+        busy: "QtWidgets.QProgressDialog",
+        busy_text: str,
+        *,
+        action: str = "",
+        fallback_model: str = "unknown",
+    ):
+        tokens = _parse_latest_progress(output)
+        if not tokens:
+            return
+        total = int(tokens.get("total", "0"))
+        step = int(tokens.get("step", "0"))
+        if total <= 0:
+            return
+        busy.setMaximum(total)
+        busy.setValue(step if tokens.get("phase") != "generating" else max(step, 0))
+        if action == "generate":
+            busy.setLabelText(_generation_progress_label(tokens, fallback_model))
+            return
+        cid = tokens.get("id")
+        act = tokens.get("action")
+        if cid:
+            busy.setLabelText(f"{busy_text}\n\nGenerated {step} / {total}   ({cid} · {act})")
+        else:
+            busy.setLabelText(f"{busy_text}\n\nGenerated {step} / {total}")
+
+    def _show_action_result(self, title, action, output, extra_report):
+        prefix = "Synced candidates" if action == "sync" else "Created pending candidates"
+        summary_line = next((ln for ln in (output or "").splitlines()
+                             if ln.startswith(prefix)), f"{title} complete.")
+        message = summary_line
+        if extra_report:
+            message += "\n\n" + "\n".join(extra_report)
+        QtWidgets.QMessageBox.information(self, f"{title} complete", message)
+
+    def _reload_from_disk(self):
+        if not self.tree_json_path or not self.tree_json_path.exists():
+            return
+        try:
+            self.data = load_tree_data(self.tree_json_path)
+        except (ValueError, OSError):
+            return
+        self._refresh_view()
 
     # -- node removal ----------------------------------------------------------
     def request_remove(self, node_id: str):
@@ -738,6 +1050,98 @@ class DashboardWindow(QtWidgets.QMainWindow):
             self.view.fit()
         else:
             super().keyPressEvent(event)
+
+
+class SyncMatchDialog(QtWidgets.QDialog):
+    """Match each trained-result folder to a pending candidate node."""
+
+    SKIP_LABEL = "— skip —"
+
+    def __init__(self, results: List[dict], pending_ids: List[str], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Match trained results to pending nodes")
+        self.resize(620, 460)
+        self.results = results
+        self.pending_ids = pending_ids
+        self._combos: List[QtWidgets.QComboBox] = []
+
+        layout = QtWidgets.QVBoxLayout(self)
+        intro = QtWidgets.QLabel(
+            "Assign each trained-result folder to the pending node it belongs to. "
+            "Logs and eval.txt will be copied into that node's logs folder, then synced.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #475569; font-size: 12px;")
+        layout.addWidget(intro)
+
+        table = QtWidgets.QTableWidget(len(results), 2)
+        table.setHorizontalHeaderLabels(["Result folder", "Pending node"])
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+
+        options = [self.SKIP_LABEL] + pending_ids
+        for row, result in enumerate(results):
+            detail = f"{result['name']}   ({result['csv_count']} csv" + \
+                     (", eval.txt)" if result["has_eval"] else ")")
+            item = QtWidgets.QTableWidgetItem(detail)
+            item.setToolTip(str(result["path"]))
+            table.setItem(row, 0, item)
+
+            combo = QtWidgets.QComboBox()
+            combo.addItems(options)
+            suggested = self._suggest(result["name"], pending_ids)
+            if suggested:
+                combo.setCurrentText(suggested)
+            combo.setMinimumWidth(180)
+            self._combos.append(combo)
+            table.setCellWidget(row, 1, combo)
+        table.setRowHeight(0, 30)
+        layout.addWidget(table, 1)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Cancel)
+        self.sync_button = buttons.addButton("Sync", QtWidgets.QDialogButtonBox.AcceptRole)
+        self.sync_button.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #059669; border: none;"
+            "border-radius: 6px; padding: 6px 18px; font-weight: 600; }"
+            "QPushButton:hover { background: #10b981; }")
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @staticmethod
+    def _suggest(folder_name: str, pending_ids: List[str]) -> Optional[str]:
+        target = _digits(folder_name)
+        if target is None:
+            return None
+        for cid in pending_ids:
+            if _digits(cid) == target:
+                return cid
+        return None
+
+    def _on_accept(self):
+        chosen = [c.currentText() for c in self._combos if c.currentText() != self.SKIP_LABEL]
+        if not chosen:
+            QtWidgets.QMessageBox.warning(
+                self, "Nothing selected", "Assign at least one result to a pending node.")
+            return
+        duplicates = {cid for cid in chosen if chosen.count(cid) > 1}
+        if duplicates:
+            QtWidgets.QMessageBox.warning(
+                self, "Duplicate assignment",
+                "These nodes are assigned more than once:\n" + ", ".join(sorted(duplicates)))
+            return
+        self.accept()
+
+    def mapping(self) -> Dict[str, Path]:
+        result_map: Dict[str, Path] = {}
+        for combo, result in zip(self._combos, self.results):
+            cid = combo.currentText()
+            if cid != self.SKIP_LABEL:
+                result_map[cid] = result["path"]
+        return result_map
 
 
 def load_tree_data(tree_json_path) -> dict:

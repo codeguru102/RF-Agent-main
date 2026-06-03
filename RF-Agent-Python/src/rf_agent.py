@@ -71,7 +71,20 @@ class OfflineRFAgent:
             self._remember_elite_parent(parent)
 
         action_plan = self._action_plan_for_selected_node(parent, num_candidates)
+        total_actions = len(action_plan)
+        parent_id = "root" if parent is None else parent.candidate_id
+        model = self.agent_config.get("model", "unknown")
+        print(
+            f"PROGRESS total={total_actions} step=0 from={parent_id} model={model}",
+            flush=True,
+        )
         for action_type, action_index, source_nodes in action_plan:
+            print(
+                f"PROGRESS total={total_actions} step={len(created)} "
+                f"from={parent_id} action={action_type}[{action_index}] "
+                f"model={model} phase=generating",
+                flush=True,
+            )
             parent_uct_at_selection = None if parent is None else self.tree.uct_score(parent, selection_c_param)
             messages = self._build_messages(parent, action_type, source_nodes)
             label = self._operation_label("OpenAI reward generation", parent, action_type, action_index)
@@ -108,6 +121,11 @@ class OfflineRFAgent:
                 },
             )
             created.append(candidate.candidate_id)
+            print(
+                f"PROGRESS total={total_actions} step={len(created)} "
+                f"id={candidate.candidate_id} action={action_type}[{action_index}]",
+                flush=True,
+            )
             self.last_generation_decisions.append(
                 {
                     "candidate_id": candidate.candidate_id,
