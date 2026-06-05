@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from candidate_store import Candidate
-from matlab_log_reader import MatlabLogReader
 
 
 @dataclass
@@ -50,7 +49,7 @@ class SearchTree:
     def __init__(
         self,
         candidates: List[Candidate],
-        log_reader: MatlabLogReader,
+        log_reader: PythonLogReader,
         dummy_failure: float,
         max_simulations: Optional[int] = None,
     ):
@@ -93,7 +92,11 @@ class SearchTree:
         for child in node.children:
             self._assign_depths(child, depth + 1)
 
-    def _recompute_statistics(self):
+    def _recompute_statistics(self, record_q_history: bool = False) -> Optional[Dict[str, List[dict]]]:
+        histories: Optional[Dict[str, List[dict]]] = (
+            {nid: [] for nid in self.nodes if nid != "root"} if record_q_history else None
+        )
+
         for node in self.nodes.values():
             node.visits = 0
             node.total_reward = 0.0
@@ -107,15 +110,58 @@ class SearchTree:
         for sim_index, node in enumerate(trained, start=1):
             reward = node.reward_cur
             q_value = node.q_leaf_value
-            self._backpropagate_result(node, reward, q_value, sim_index, max_simulations)
+            self._backpropagate_result(
+                node,
+                reward,
+                q_value,
+                sim_index,
+                max_simulations,
+                histories=histories,
+            )
+        return histories
 
-    def _backpropagate_result(self, node: SearchNode, reward: float, q_value: float, sim_index: int, max_simulations: int):
+    def recompute_q_histories(self) -> Dict[str, List[dict]]:
+        """Replay trained nodes and return per-node Q snapshots after each simulation."""
+        return self._recompute_statistics(record_q_history=True) or {}
+
+    def _record_q_snapshot(
+        self,
+        histories: Optional[Dict[str, List[dict]]],
+        node_id: str,
+        sim_index: int,
+        role: str,
+        trained_leaf_id: str,
+    ):
+        if histories is None or node_id == "root" or node_id not in self.nodes:
+            return
+        node = self.nodes[node_id]
+        histories[node_id].append(
+            {
+                "sim": sim_index,
+                "q": node.q_value,
+                "visits": node.visits,
+                "role": role,
+                "trained_leaf": trained_leaf_id,
+            }
+        )
+
+    def _backpropagate_result(
+        self,
+        node: SearchNode,
+        reward: float,
+        q_value: float,
+        sim_index: int,
+        max_simulations: int,
+        histories: Optional[Dict[str, List[dict]]] = None,
+    ):
+        leaf_id = node.candidate_id
         node.reward_cur = reward
         node.q_value = q_value
         node.visits += 1
         node.total_reward += q_value
         self.min_q = min(self.min_q, node.q_value)
         self.max_q = max(self.max_q, node.q_value)
+        self._record_q_snapshot(histories, leaf_id, sim_index, "leaf", leaf_id)
 
         parent = self.nodes.get(node.parent_id or "root")
         while parent and parent is not self.root:
@@ -131,6 +177,7 @@ class SearchTree:
                 + self.update_best_child_gamma * best_child_q
                 + update_mean_gamma * q_mean_value
             )
+            self._record_q_snapshot(histories, parent.candidate_id, sim_index, "ancestor", leaf_id)
             parent = self.nodes.get(parent.parent_id or "root")
 
         self.root.visits += 1

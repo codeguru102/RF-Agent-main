@@ -42,7 +42,13 @@ STATUS = {
     "unknown": {"fill": "#f8fafc", "accent": "#94a3b8", "label": "Unknown"},
 }
 
-HIGHLIGHT = {"best": "#059669", "selected": "#2563eb", "elite": "#ca8a04", "new": "#7c3aed"}
+HIGHLIGHT = {
+    "best": "#059669",
+    "selected": "#2563eb",
+    "elite": "#ca8a04",
+    "new": "#7c3aed",
+    "multi": "#6366f1",
+}
 
 NODE_W = 232
 NODE_H = 112
@@ -328,18 +334,54 @@ class NodeCard(QtWidgets.QGraphicsItem):
         super().__init__()
         self.node = node
         self.on_remove = None  # callback(candidate_id) set by the window
+        self.on_open_metrics = None  # callback(candidate_id) on double-click
+        self.on_selection_click = None  # callback(candidate_id, ctrl_pressed)
+        self.on_compare_selected = None  # callback() open comparison dialog
         self.setAcceptHoverEvents(True)
         self.setToolTip(self._tooltip())
         self._hover = False
+        self._multi_selected = False
+
+    def set_multi_selected(self, selected: bool):
+        if self._multi_selected != selected:
+            self._multi_selected = selected
+            self.update()
 
     def contextMenuEvent(self, event):
         if self.node.get("candidate_id") == "root":
             return
         menu = QtWidgets.QMenu()
+        if callable(self.on_compare_selected):
+            compare_action = menu.addAction("Compare selected nodes…")
         remove_action = menu.addAction("Remove node")
         chosen = menu.exec_(event.screenPos())
-        if chosen == remove_action and callable(self.on_remove):
+        if callable(self.on_compare_selected) and chosen == compare_action:
+            self.on_compare_selected()
+        elif chosen == remove_action and callable(self.on_remove):
             self.on_remove(self.node["candidate_id"])
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent):
+        if (
+            event.button() == QtCore.Qt.LeftButton
+            and self.node.get("candidate_id") != "root"
+            and callable(self.on_selection_click)
+        ):
+            ctrl = bool(event.modifiers() & QtCore.Qt.ControlModifier)
+            self.on_selection_click(self.node["candidate_id"], ctrl)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent):
+        if (
+            event.button() == QtCore.Qt.LeftButton
+            and self.node.get("candidate_id") != "root"
+            and callable(self.on_open_metrics)
+        ):
+            self.on_open_metrics(self.node["candidate_id"])
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def boundingRect(self) -> QtCore.QRectF:
         return QtCore.QRectF(-2, -2, NODE_W + 4, NODE_H + 6)
@@ -356,6 +398,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
             f"visits: {n.get('visits', 0)}",
             f"verify: {_fmt(n.get('self_verify_score'))}",
             f"depth: {n.get('depth', 0)}",
+            "<i>Ctrl+click multi-select · double-click: metrics + reward code</i>",
         ]
         return "<br>".join(rows)
 
@@ -378,7 +421,10 @@ class NodeCard(QtWidgets.QGraphicsItem):
         # border highlight
         border = QtGui.QColor(PALETTE["card_border"])
         border_w = 1.2
-        if n.get("is_best"):
+        if self._multi_selected:
+            border = QtGui.QColor(HIGHLIGHT["multi"])
+            border_w = 2.8
+        elif n.get("is_best"):
             # border = QtGui.QColor(HIGHLIGHT["best"])
             # border_w = 2.6
             pass
@@ -507,6 +553,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
 class TreeView(QtWidgets.QGraphicsView):
     def __init__(self, scene: QtWidgets.QGraphicsScene):
         super().__init__(scene)
+        self.on_clear_selection = None
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.TextAntialiasing |
                             QtGui.QPainter.SmoothPixmapTransform)
         self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
@@ -517,6 +564,17 @@ class TreeView(QtWidgets.QGraphicsView):
         self._zoom = 1.0
         self._min_zoom = 0.05
         self._max_zoom = 6.0
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent):
+        item = self.itemAt(event.pos())
+        if (
+            event.button() == QtCore.Qt.LeftButton
+            and not isinstance(item, NodeCard)
+            and not (event.modifiers() & QtCore.Qt.ControlModifier)
+            and callable(self.on_clear_selection)
+        ):
+            self.on_clear_selection()
+        super().mousePressEvent(event)
 
     def wheelEvent(self, event: QtGui.QWheelEvent):
         factor = 1.18 if event.angleDelta().y() > 0 else 1 / 1.18
@@ -569,6 +627,10 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.candidates_dir = candidates_dir_for(tree_json_path) if tree_json_path else None
         self._active_proc = None
         self._active_busy = None
+        self._metrics_dialogs: List = []
+        self._compare_dialogs: List = []
+        self._selected_ids: set = set()
+        self._node_cards: Dict[str, NodeCard] = {}
         task = data.get("task_name", "task")
         self.setWindowTitle(f"RF-Agent Dashboard — {task}")
         self.resize(1480, 900)
@@ -585,6 +647,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.scene = QtWidgets.QGraphicsScene()
         self.scene.setBackgroundBrush(QtGui.QColor(PALETTE["canvas"]))
         self.view = TreeView(self.scene)
+        self.view.on_clear_selection = self._clear_selection
         self._build_scene(data)
         layout.addWidget(self.view, 1)
 
@@ -648,6 +711,21 @@ class DashboardWindow(QtWidgets.QMainWindow):
         sync_btn.clicked.connect(self._open_sync_dialog)
         h.addWidget(sync_btn)
 
+        h.addSpacing(8)
+        self._compare_btn = QtWidgets.QPushButton("Compare selected (0)")
+        self._compare_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        self._compare_btn.setFixedHeight(32)
+        self._compare_btn.setMinimumWidth(168)
+        self._compare_btn.setEnabled(False)
+        self._compare_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #6366f1; border: 1px solid #4f46e5;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 14px; }"
+            "QPushButton:hover { background: #818cf8; }"
+            "QPushButton:disabled { background: #475569; border-color: #334155; color: #94a3b8; }")
+        self._compare_btn.clicked.connect(self._open_compare_dialog)
+        h.addWidget(self._compare_btn)
+        self._sync_compare_button()
+
         h.addSpacing(12)
         for text, slot, primary in [("−", self._zoom_out, False), ("+", self._zoom_in, False),
                                      ("Fit", self._fit, True), ("Reset", self._reset, False)]:
@@ -684,7 +762,8 @@ class DashboardWindow(QtWidgets.QMainWindow):
         h.setContentsMargins(20, 0, 20, 0)
         legend = [("Trained", STATUS["trained"]["accent"]), ("Pending", STATUS["pending"]["accent"]),
                   ("Failed", STATUS["failed"]["accent"]), ("Elite", HIGHLIGHT["elite"]),
-                  ("Selected", HIGHLIGHT["selected"]), ("Best", HIGHLIGHT["best"])]
+                  ("Selected", HIGHLIGHT["selected"]), ("Multi-select", HIGHLIGHT["multi"]),
+                  ("Best", HIGHLIGHT["best"])]
         for label, color in legend:
             swatch = QtWidgets.QLabel()
             swatch.setFixedSize(12, 12)
@@ -695,13 +774,16 @@ class DashboardWindow(QtWidgets.QMainWindow):
             h.addWidget(text)
             h.addSpacing(14)
         h.addStretch(1)
-        hint = QtWidgets.QLabel("Scroll to zoom · drag to pan · right-click a node to remove · Generate / Sync above")
+        hint = QtWidgets.QLabel(
+            "Ctrl+click to select multiple nodes · Compare selected · double-click for plots · "
+            "right-click to remove")
         hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")
         h.addWidget(hint)
         return bar
 
     # -- scene -----------------------------------------------------------------
     def _build_scene(self, data: dict):
+        self._node_cards = {}
         nodes = data.get("nodes", [])
         edges = data.get("edges", [])
         positions = _layout(nodes, edges)
@@ -721,10 +803,17 @@ class DashboardWindow(QtWidgets.QMainWindow):
             if pos is None:
                 continue
             card = NodeCard(node)
+            cid = node["candidate_id"]
             card.on_remove = self.request_remove
+            card.on_open_metrics = self._open_node_metrics
+            card.on_selection_click = self._on_node_selection_click
+            card.on_compare_selected = self._open_compare_dialog
+            card.set_multi_selected(cid in self._selected_ids)
             card.setPos(pos)
             card.setZValue(2)
             self.scene.addItem(card)
+            if cid != "root":
+                self._node_cards[cid] = card
 
         rect = self.scene.itemsBoundingRect().adjusted(-60, -60, 60, 60)
         self.scene.setSceneRect(rect)
@@ -745,6 +834,104 @@ class DashboardWindow(QtWidgets.QMainWindow):
         pen.setJoinStyle(QtCore.Qt.RoundJoin)
         item = self.scene.addPath(path, pen)
         item.setZValue(1)
+
+    # -- multi-select & comparison ---------------------------------------------
+    def _on_node_selection_click(self, node_id: str, ctrl_pressed: bool):
+        if node_id == "root":
+            return
+        if ctrl_pressed:
+            if node_id in self._selected_ids:
+                self._selected_ids.discard(node_id)
+            else:
+                self._selected_ids.add(node_id)
+        else:
+            if node_id in self._selected_ids and len(self._selected_ids) == 1:
+                self._selected_ids.clear()
+            else:
+                self._selected_ids = {node_id}
+        self._apply_selection_visuals()
+        self._sync_compare_button()
+
+    def _apply_selection_visuals(self):
+        for cid, card in self._node_cards.items():
+            card.set_multi_selected(cid in self._selected_ids)
+
+    def _sync_compare_button(self):
+        if not hasattr(self, "_compare_btn") or self._compare_btn is None:
+            return
+        count = len(self._selected_ids)
+        self._compare_btn.setEnabled(count >= 1)
+        self._compare_btn.setText(
+            f"Compare selected ({count})" if count else "Compare selected (0)")
+
+    def _clear_selection(self):
+        self._selected_ids.clear()
+        self._apply_selection_visuals()
+        self._sync_compare_button()
+
+    def _open_compare_dialog(self):
+        if not self._selected_ids:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Compare nodes",
+                "Select one or more nodes with Ctrl+click, then press Compare selected.",
+            )
+            return
+        nodes = [
+            n for n in self.data.get("nodes", [])
+            if n.get("candidate_id") in self._selected_ids
+        ]
+        nodes.sort(key=lambda n: n.get("candidate_id", ""))
+        folders = {}
+        if self.candidates_dir:
+            scanned = _scan_candidate_folders(self.candidates_dir)
+            for cid in self._selected_ids:
+                if cid in scanned:
+                    folders[cid] = scanned[cid]
+        from metrics_dialog import open_node_comparison
+
+        self._compare_dialogs = [d for d in self._compare_dialogs if d.isVisible()]
+        dialog = open_node_comparison(nodes, folders, parent=self)
+        self._compare_dialogs.append(dialog)
+
+    # -- node metrics (double-click) -------------------------------------------
+    def _open_node_metrics(self, node_id: str):
+        if node_id == "root":
+            return
+        node = next(
+            (n for n in self.data.get("nodes", []) if n.get("candidate_id") == node_id),
+            None,
+        )
+        if node is None:
+            return
+        if not self.candidates_dir:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Metrics unavailable",
+                "Candidate folder not found for this task, so training logs cannot be loaded.",
+            )
+            return
+        folder = _scan_candidate_folders(self.candidates_dir).get(node_id)
+        if folder is None:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Metrics unavailable",
+                f"No on-disk folder found for {node_id}.",
+            )
+            return
+        from metrics_dialog import open_node_metrics
+
+        package_root = Path(__file__).resolve().parent.parent
+        task_dir = self.candidates_dir.parent if self.candidates_dir else None
+        self._metrics_dialogs = [d for d in self._metrics_dialogs if d.isVisible()]
+        dialog = open_node_metrics(
+            node,
+            folder,
+            parent=self,
+            task_dir=task_dir,
+            package_root=package_root,
+        )
+        self._metrics_dialogs.append(dialog)
 
     # -- sync trained results --------------------------------------------------
     def _open_sync_dialog(self):
@@ -1018,6 +1205,8 @@ class DashboardWindow(QtWidgets.QMainWindow):
             pass
 
     def _refresh_view(self):
+        valid = {n.get("candidate_id") for n in self.data.get("nodes", [])}
+        self._selected_ids &= valid
         transform = self.view.transform()
         self.scene.clear()
         self._build_scene(self.data)
@@ -1025,6 +1214,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.main_layout.replaceWidget(self.header_widget, new_header)
         self.header_widget.deleteLater()
         self.header_widget = new_header
+        self._sync_compare_button()
         self.view.setTransform(transform)
 
     # -- slots -----------------------------------------------------------------
@@ -1042,7 +1232,11 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         key = event.key()
-        if key in (QtCore.Qt.Key_Plus, QtCore.Qt.Key_Equal):
+        if key == QtCore.Qt.Key_Escape:
+            self._clear_selection()
+        elif key in (QtCore.Qt.Key_Return, QtCore.Qt.Key_Enter) and self._selected_ids:
+            self._open_compare_dialog()
+        elif key in (QtCore.Qt.Key_Plus, QtCore.Qt.Key_Equal):
             self.view.zoom_in()
         elif key in (QtCore.Qt.Key_Minus, QtCore.Qt.Key_Underscore):
             self.view.zoom_out()
