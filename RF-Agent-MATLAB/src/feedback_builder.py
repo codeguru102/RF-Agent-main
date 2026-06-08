@@ -22,6 +22,11 @@ class FeedbackBuilder:
         score = self.log_reader.score_summary(candidate.summary)
         parts.append(f"computed_selection_score: {score:.6f}")
 
+        feedback_text = self.log_reader.read_feedback_text(candidate.folder)
+        if feedback_text:
+            parts.append("result feedback:")
+            parts.append(feedback_text)
+
         csv_summaries = self.log_reader.summarize_csv_logs(candidate.folder)
         if csv_summaries:
             parts.append("csv log summaries:")

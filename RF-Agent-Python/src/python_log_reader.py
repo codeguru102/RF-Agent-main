@@ -65,6 +65,16 @@ class PythonLogReader:
             return None
         return values[:num_metrics]
 
+    def read_feedback_text(self, candidate_folder: Path, max_chars: int = 6000) -> str:
+        feedback_path = Path(candidate_folder) / "logs" / "feedback.txt"
+        if not feedback_path.exists():
+            return ""
+
+        text = feedback_path.read_text(encoding="utf-8").strip()
+        if max_chars > 0 and len(text) > max_chars:
+            return text[:max_chars].rstrip() + "\n[feedback.txt truncated]"
+        return text
+
     def summary_from_csv_logs(self, candidate_folder: Path) -> Dict[str, object]:
         csv_summaries = self.summarize_csv_logs(candidate_folder)
         if not csv_summaries:
