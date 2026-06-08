@@ -1,7 +1,5 @@
-Create a new reward by combining useful ideas from these strong previous candidates.
+I have {nums} existing reward functions with their design ideas, codes, scores, actions, and offline training feedback as follows.
 
-Candidate group:
 {reward_func_group}
 
-Use the best components, avoid contradictory terms, and keep the final reward simple enough for stable training.
-
+Please create a new reward function inspired by those reward functions. Try to list the common ideas in high-score reward functions internally, combine high-performing reward components from different reward functions based on the tracked data, avoid contradictory terms, and keep the final reward simple enough for stable training. The new reward function should have a higher task score.

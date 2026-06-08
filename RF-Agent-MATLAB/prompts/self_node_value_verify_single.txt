@@ -1,8 +1,11 @@
-Candidate design thought:
+Be sure to remember the definition of the task. Additionally, I have an existing reward function with its design idea and code as follows.
+
+Design Idea:
 {design_thought}
 
-Candidate reward function:
+Code:
 {reward_function}
 
-Imagine how an expert policy should solve the task. Evaluate how well this reward function encourages that process using the available MATLAB training variables.
-Return only the score in square brackets, such as [0.5].
+Now, based on the task definition, imagine how an expert-level strategy completes the task. Describe internally the execution planning and process of that expert strategy, then evaluate the given reward function according to your imagined process. Judge the similarity of the reward function with the expert process, with the numerical value limited to [-1, 1].
+
+Finally, return only the value enclosed in square brackets, such as [0.5].

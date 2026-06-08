@@ -1,7 +1,6 @@
-Task:
-{task_description}
+The task is: {task_description}.
 
-Full task context:
+The MATLAB task context is:
 {task_context}
 
 Reward signature:
@@ -13,4 +12,4 @@ Available variables:
 Optimization target:
 {score_description}
 
-Write a new reward candidate.
+Write a reward function for this task.

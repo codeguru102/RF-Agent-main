@@ -1,13 +1,12 @@
-Improve the reward by changing the reward mechanism, not only numeric weights.
+I have one reward function with its design idea and code as follows.
 
-Parent design thought:
+Design Idea:
 {design_thought}
 
-Parent reward:
+Code:
 {reward_function}
 
-Parent training feedback:
+We trained an RL policy using the provided reward function code and tracked the values of individual reward components as well as global policy metrics from the offline logs:
 {trained_results}
 
-Focus on adding, removing, or restructuring reward components that can improve learning.
-
+Please create a new reward function that has a different form but can be a modified version of the provided reward function. The new reward function should have a higher task score. Try to introduce a more novel idea and add, remove, or restructure useful reward components from the task variables.

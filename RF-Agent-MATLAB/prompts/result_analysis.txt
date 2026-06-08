@@ -1,4 +1,5 @@
-Training feedback is summarized as metric curves and summary statistics.
-Higher task score is better unless the task config says otherwise.
-Use failures, constraint violations, instability, and weak final scores to diagnose reward issues.
-
+(1) The configured task score reflects the agent's actual task score or success rate after training under the current reward function.
+(2) If the values for a certain reward component are near identical throughout training, then RL may not be able to optimize that component as it is written.
+(3) If some reward components' magnitudes are significantly larger or smaller than the others, those components may not be conducive to policy learning.
+(4) Use failures, constraint violations, instability, weak final scores, and the optional result feedback text to diagnose reward issues.
+(5) Higher task score is better unless the task config says otherwise.

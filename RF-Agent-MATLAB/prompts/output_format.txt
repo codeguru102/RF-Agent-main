@@ -1,10 +1,14 @@
+First, describe the design idea and main steps of your reward function in one concise sentence.
+Next, write a complete MATLAB reward function based on this idea.
+
 Output exactly one JSON object:
 {
-  "design_thought": "short explanation of the reward design",
+  "design_thought": "one concise sentence describing the reward design and main steps",
   "reward_code": "complete MATLAB function code"
 }
 
 The MATLAB code must define reward_fcn and must be self-contained.
-Do not change input/output signature of the function.
+Do not change the configured input/output signature.
 Do not import unavailable project-specific helpers.
+Do not give additional explanations outside the JSON object.
 The generated candidate will be saved as reward_fcn.m.

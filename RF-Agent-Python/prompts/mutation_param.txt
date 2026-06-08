@@ -1,13 +1,12 @@
-Improve the reward by changing numeric scales, temperatures, tolerances, bonuses, or penalties while preserving the main mechanism.
+I have one reward function with its design idea and code as follows.
 
-Parent design thought:
+Design Idea:
 {design_thought}
 
-Parent reward:
+Code:
 {reward_function}
 
-Parent training feedback:
+We trained an RL policy using the provided reward function code and tracked the values of individual reward components as well as global policy metrics from the offline logs:
 {trained_results}
 
-Focus on better balance between progress, stability, control effort, success, and constraints.
-
+Please identify the reward function parameters, scales, temperatures, tolerances, bonuses, and penalties, then create a new reward function with different parameter settings compared to the provided version. Preserve the main mechanism when it is useful. The new reward function should have a higher task score.

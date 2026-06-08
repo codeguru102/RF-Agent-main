@@ -1,6 +1,12 @@
-Create a reward that explores a meaningfully different design direction from these previous candidates.
+I have {nums} existing reward functions with their design ideas, codes, scores, actions, and offline training feedback as follows.
 
-Candidate group:
 {reward_func_group}
 
-The new reward should still use the task variables and optimize the same MATLAB training score, but should not be a small parameter tweak.
+Please create a new reward function that has a totally different form from the given algorithms while still using only the available task variables and optimizing the same MATLAB training score.
+
+Here are some advices that may be helpful:
+Select observation components that are more relevant to the task for reward calculation, adopting or replacing components from previous reward functions;
+Design a hierarchical reward system, if necessary, where the agent first completes one subtask and then proceeds to the next;
+Use nested rewards, such as applying an exponential function to distance/error terms or using alignment/similarity terms when appropriate.
+
+Remember the new reward function should have a higher task score.
