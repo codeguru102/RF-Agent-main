@@ -118,14 +118,6 @@ def build_task_context(config: Dict) -> str:
     if available_variables:
         sections.append(section("Available Variables", "\n".join(f"- {item}" for item in available_variables)))
 
-    log_inventory = config.get("log_inventory", [])
-    if log_inventory:
-        sections.append(section("Task Log Files", "\n".join(f"- {item}" for item in log_inventory)))
-
-    candidate_log_inventory = config.get("candidate_log_inventory", [])
-    if candidate_log_inventory:
-        sections.append(section("Candidate Log Files", "\n".join(f"- {item}" for item in candidate_log_inventory)))
-
     return "\n\n".join(part for part in sections if part.strip())
 
 
