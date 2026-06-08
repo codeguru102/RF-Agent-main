@@ -204,7 +204,7 @@ class SearchTree:
 
     def elite_nodes(self, limit: int) -> List[SearchNode]:
         nodes = self.trained_nodes()
-        return sorted(nodes, key=lambda node: node.reward_cur, reverse=True)[:limit]
+        return sorted(nodes, key=lambda node: node.q_leaf_value, reverse=True)[:limit]
 
     def elite_set_nodes(self, elite_ids: List[str], limit: Optional[int] = None) -> List[SearchNode]:
         nodes = [
@@ -212,7 +212,7 @@ class SearchTree:
             for candidate_id in elite_ids
             if candidate_id in self.nodes and self.nodes[candidate_id].is_trained
         ]
-        nodes = sorted(nodes, key=lambda node: node.reward_cur, reverse=True)
+        nodes = sorted(nodes, key=lambda node: node.q_leaf_value, reverse=True)
         return nodes[:limit] if limit is not None else nodes
 
     def best_node(self) -> Optional[SearchNode]:
@@ -241,13 +241,13 @@ class SearchTree:
                 max_depth = max(item.depth for item in branch_nodes)
                 target_depth = rng.randint(child.depth, max_depth) if rng else child.depth
                 depth_nodes = [item for item in branch_nodes if item.depth <= target_depth]
-                result.append(max(depth_nodes, key=lambda item: item.reward_cur))
+                result.append(max(depth_nodes, key=lambda item: item.q_leaf_value))
             else:
                 result.extend(branch_nodes)
         if randomize and rng:
             rng.shuffle(result)
             return result
-        return sorted(result, key=lambda item: item.reward_cur, reverse=True)
+        return sorted(result, key=lambda item: item.q_leaf_value, reverse=True)
 
     def _collect_trained(self, node: SearchNode) -> List[SearchNode]:
         result = [node] if node.is_trained else []

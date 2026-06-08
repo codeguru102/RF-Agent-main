@@ -168,7 +168,7 @@ def render_dashboard(
             "latest_decisions": latest_decisions,
             "elite_display_limit": elite_display_limit,
             "elite_candidates": [
-                {"candidate_id": node.candidate_id, "score": node.reward_cur}
+                {"candidate_id": node.candidate_id, "score": node.q_leaf_value}
                 for node in elite_display_nodes
             ],
             "best_trained": best_trained_summary(tree),
@@ -521,7 +521,7 @@ def dashboard_stats(tree: SearchTree, c_param: float, best_node_id: Optional[str
     best = tree.best_node()
     best_score = None
     if best and best.candidate_id != "root":
-        best_score = best.reward_cur
+        best_score = best.q_leaf_value
     return {
         "total": len(tree.nodes),
         "trained": len(tree.trained_nodes()),
@@ -658,7 +658,7 @@ def node_to_dict(
         "action_type": node.action_type,
         "action_index": node.action_index,
         "depth": node.depth,
-        "score": node.reward_cur,
+        "score": node.q_leaf_value,
         "q_value": node.q_value,
         "visits": node.visits,
         "total_reward": node.total_reward,
@@ -766,7 +766,7 @@ def draw_node(
     accent_bar.set_clip_path(box)
 
     uct = tree.uct_score(node, c_param) if node.candidate_id != "root" and node.is_trained else None
-    score = "—" if node.candidate_id == "root" else format_number(node.reward_cur)
+    score = "—" if node.candidate_id == "root" else format_number(node.q_leaf_value)
     q_value = "—" if node.candidate_id == "root" else format_number(node.q_value)
     uct_text = "—" if uct is None else format_number(uct)
     action = format_action(node.action_type, node.action_index)

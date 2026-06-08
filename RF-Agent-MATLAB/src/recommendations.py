@@ -12,7 +12,7 @@ def best_trained_summary(tree: SearchTree):
         return None
     return {
         "candidate_id": best.candidate_id,
-        "score": best.reward_cur,
+        "score": best.q_leaf_value,
         "q_value": best.q_value,
         "visits": best.visits,
         "reward_file": str(best.candidate.folder / best.candidate.metadata.get("reward_file", "reward_fcn.m")),
@@ -53,7 +53,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "action_index": node.action_index,
                 "parent_id": node.parent_id,
                 "status": node.candidate.status.get("status", "unknown"),
-                "score": node.reward_cur,
+                "score": node.q_leaf_value,
                 "uct_score": None,
                 "reward_file": str(node.candidate.folder / node.candidate.metadata.get("reward_file", "reward_fcn.m")),
                 "logs_dir": str(node.candidate.folder / "logs"),
@@ -79,7 +79,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "action_index": node.action_index,
                 "parent_id": node.parent_id,
                 "status": node.candidate.status.get("status", "unknown"),
-                "score": node.reward_cur,
+                "score": node.q_leaf_value,
                 "uct_score": None,
                 "reward_file": str(node.candidate.folder / node.candidate.metadata.get("reward_file", "reward_fcn.m")),
                 "logs_dir": str(node.candidate.folder / "logs"),

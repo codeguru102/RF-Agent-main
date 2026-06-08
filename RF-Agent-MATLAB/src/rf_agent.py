@@ -380,7 +380,7 @@ class OfflineRFAgent:
                     [
                         f"Candidate {index}: {node.candidate_id}",
                         f"Action: {node.action_type}",
-                        f"Score: {node.reward_cur:.6f}",
+                        f"Score: {node.q_leaf_value:.6f}",
                         f"Design thought: {node.metadata.get('design_thought', '')}",
                         "Reward:",
                         node.candidate.reward_code,
@@ -507,7 +507,7 @@ class OfflineRFAgent:
                 trained_children = [child for child in selected.children if child.is_trained]
                 if not trained_children:
                     break
-                selected = max(trained_children, key=lambda child: child.reward_cur)
+                selected = max(trained_children, key=lambda child: child.q_leaf_value)
             nodes.append(selected)
 
         nodes.append(parent)
@@ -538,7 +538,7 @@ class OfflineRFAgent:
 
         elite_nodes = self.tree.elite_set_nodes(elite_ids)
         max_length = int(self.agent_config.get("elite_max_length", 10))
-        elite_nodes = sorted(elite_nodes, key=lambda node: node.reward_cur, reverse=True)[:max_length]
+        elite_nodes = sorted(elite_nodes, key=lambda node: node.q_leaf_value, reverse=True)[:max_length]
         self.store.save_elite_ids(node.candidate_id for node in elite_nodes)
 
     def _maybe_cap_action_plan(

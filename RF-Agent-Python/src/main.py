@@ -80,7 +80,7 @@ def inspect_state(tree: SearchTree, task_name: str, elite_ids: List[str], elite_
     if not elites:
         print("- none")
     for node in elites:
-        print(f"- {node.candidate_id}: score={node.reward_cur:.6f}, action={node.action_type}, parent={node.parent_id}")
+        print(f"- {node.candidate_id}: score={node.q_leaf_value:.6f}, action={node.action_type}, parent={node.parent_id}")
 
 
 def main(args=None):
@@ -161,7 +161,7 @@ def export_best_reward(task_dir: Path, tree: SearchTree):
         summary_path,
         {
             "candidate_id": best.candidate_id,
-            "score": best.reward_cur,
+            "score": best.q_leaf_value,
             "q_value": best.q_value,
             "visits": best.visits,
             "summary": best.candidate.summary,
@@ -171,7 +171,7 @@ def export_best_reward(task_dir: Path, tree: SearchTree):
     )
     return {
         "candidate_id": best.candidate_id,
-        "score": best.reward_cur,
+        "score": best.q_leaf_value,
         "reward_path": reward_path,
     }
 
