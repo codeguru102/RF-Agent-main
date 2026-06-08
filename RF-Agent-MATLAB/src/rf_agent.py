@@ -314,18 +314,21 @@ class OfflineRFAgent:
         elif action_type == "crossover_elite":
             user_parts.append(
                 self._prompt("crossover_elite.txt").format(
+                    nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
         elif action_type == "tree_reasoning":
             user_parts.append(
                 self._prompt("tree_reasoning.txt").format(
+                    nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
         elif action_type == "different_thought":
             user_parts.append(
                 self._prompt("different_thought.txt").format(
+                    nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )

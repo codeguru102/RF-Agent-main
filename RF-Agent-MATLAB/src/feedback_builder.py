@@ -19,7 +19,8 @@ class FeedbackBuilder:
             for key, value in sorted(candidate.summary.items()):
                 parts.append(f"- {key}: {value}")
 
-        score = self.log_reader.score_summary(candidate.summary)
+        fallback_score = self.log_reader.score_summary(candidate.summary)
+        score = self.log_reader.q_value_for_candidate(candidate.folder, fallback_score)
         parts.append(f"computed_selection_score: {score:.6f}")
 
         feedback_text = self.log_reader.read_feedback_text(candidate.folder)
