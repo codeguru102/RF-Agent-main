@@ -35,6 +35,8 @@ def _extract_code_block(content: str) -> str:
     patterns = [
         r"```python\s*(.*?)```",
         r"```py\s*(.*?)```",
+        r"```matlab\s*(.*?)```",
+        r"```m\s*(.*?)```",
         r"```\s*(.*?)```",
     ]
     for pattern in patterns:
@@ -42,7 +44,7 @@ def _extract_code_block(content: str) -> str:
         if match:
             return match.group(1).strip()
 
-    function_match = re.search(r"(def\s+compute_reward\s*\(.*)", content, flags=re.DOTALL | re.IGNORECASE)
+    function_match = re.search(r"((?:def\s+\w+\s*\(.*)|(?:function\s+.*))", content, flags=re.DOTALL | re.IGNORECASE)
     if function_match:
         return function_match.group(1).strip()
     return ""

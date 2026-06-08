@@ -438,14 +438,9 @@ def _make_log_reader(task_config: dict, agent_config: dict):
     score = task_config.get("score", {})
     dummy = float(agent_config.get("dummy_failure", -10000.0))
     q_cfg = task_config.get("q_value_settings") or task_config.get("fitness_score_settings")
-    try:
-        from matlab_log_reader import MatlabLogReader
+    from log_reader import OfflineLogReader
 
-        return MatlabLogReader(score, dummy, q_value_config=q_cfg)
-    except ImportError:
-        from python_log_reader import PythonLogReader
-
-        return PythonLogReader(score, dummy, q_value_config=q_cfg)
+    return OfflineLogReader(score, dummy, q_value_config=q_cfg)
 
 
 def load_q_value_history(

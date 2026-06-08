@@ -15,7 +15,7 @@ def best_trained_summary(tree: SearchTree):
         "score": best.q_leaf_value,
         "q_value": best.q_value,
         "visits": best.visits,
-        "reward_file": str(best.candidate.folder / best.candidate.metadata.get("reward_file", "reward_fcn.py")),
+        "reward_file": str(best.candidate.folder / _reward_file_name(best.candidate.metadata)),
         "summary": best.candidate.summary,
     }
 
@@ -55,7 +55,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "status": node.candidate.status.get("status", "unknown"),
                 "score": node.q_leaf_value,
                 "uct_score": None,
-                "reward_file": str(node.candidate.folder / node.candidate.metadata.get("reward_file", "reward_fcn.py")),
+                "reward_file": str(node.candidate.folder / _reward_file_name(node.candidate.metadata)),
                 "logs_dir": str(node.candidate.folder / "logs"),
                 "summary_file": str(node.candidate.folder / "summary.json"),
                 "reason": "status is trained, but summary.json is missing; add summary/logs so RF-Agent can score it",
@@ -81,7 +81,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "status": node.candidate.status.get("status", "unknown"),
                 "score": node.q_leaf_value,
                 "uct_score": None,
-                "reward_file": str(node.candidate.folder / node.candidate.metadata.get("reward_file", "reward_fcn.py")),
+                "reward_file": str(node.candidate.folder / _reward_file_name(node.candidate.metadata)),
                 "logs_dir": str(node.candidate.folder / "logs"),
                 "summary_file": str(node.candidate.folder / "summary.json"),
                 "reason": reason,
@@ -125,3 +125,9 @@ def print_training_recommendations(tree: SearchTree, latest_decisions: Optional[
         print("")
         print("Because no candidate has been trained yet, train all pending initial candidates if possible.")
         print("If you can only train one first, start with rank 1, then add its summary/logs and run inspect again.")
+
+
+def _reward_file_name(metadata: dict) -> str:
+    reward_language = str(metadata.get("reward_language", "")).lower()
+    default_file = "reward_fcn.m" if reward_language in {"matlab", "m"} else "reward_fcn.py"
+    return metadata.get("reward_file", default_file)

@@ -49,7 +49,7 @@ class SearchTree:
     def __init__(
         self,
         candidates: List[Candidate],
-        log_reader: PythonLogReader,
+        log_reader: object,
         dummy_failure: float,
         max_simulations: Optional[int] = None,
     ):

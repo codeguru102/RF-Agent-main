@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from candidate_store import Candidate
-from python_log_reader import PythonLogReader
+from log_reader import OfflineLogReader
 
 
 class FeedbackBuilder:
-    def __init__(self, log_reader: PythonLogReader):
+    def __init__(self, log_reader: OfflineLogReader):
         self.log_reader = log_reader
 
     def build(self, candidate: Candidate) -> str:

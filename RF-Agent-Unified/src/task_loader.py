@@ -6,7 +6,7 @@ from typing import Dict, List
 from config import load_json
 
 
-DEFAULT_TASK_TEXT_FILES = {
+BASE_TASK_TEXT_FILES = {
     "description": {
         "path": "description.md",
         "title": "Purpose / Description",
@@ -18,10 +18,6 @@ DEFAULT_TASK_TEXT_FILES = {
     "environment": {
         "path": "environment.md",
         "title": "Environment",
-    },
-    "original_reward": {
-        "path": "original_reward.m",
-        "title": "Original Reward",
     },
 }
 
@@ -35,11 +31,12 @@ def load_task_folder(task_dir: Path) -> dict:
     config = load_json(task_config_path)
     config["_task_dir"] = str(task_dir)
     config.setdefault("task_name", task_dir.name)
-    config.setdefault("reward_language", "matlab")
+    reward_language = str(config.get("reward_language", "python")).lower()
+    config["reward_language"] = reward_language
     config.setdefault("reward_function_name", "reward_fcn")
-    config.setdefault("reward_file", "reward_fcn.m")
+    config.setdefault("reward_file", default_reward_file(reward_language))
 
-    text_files = normalize_task_text_files(config.get("task_text_files", DEFAULT_TASK_TEXT_FILES))
+    text_files = normalize_task_text_files(config.get("task_text_files", default_task_text_files(reward_language)))
     text_sections = []
     for item in text_files:
         path = task_dir / item["path"]
@@ -59,6 +56,19 @@ def load_task_folder(task_dir: Path) -> dict:
     config["candidate_log_inventory"] = collect_log_inventory(task_dir / "candidates")
     config["task_context"] = build_task_context(config)
     return config
+
+
+def default_reward_file(reward_language: str) -> str:
+    return "reward_fcn.m" if reward_language in {"matlab", "m"} else "reward_fcn.py"
+
+
+def default_task_text_files(reward_language: str) -> Dict[str, Dict[str, str]]:
+    text_files = dict(BASE_TASK_TEXT_FILES)
+    text_files["original_reward"] = {
+        "path": "original_reward.m" if reward_language in {"matlab", "m"} else "original_reward.py",
+        "title": "Original Reward",
+    }
+    return text_files
 
 
 def normalize_task_text_files(config_value) -> List[Dict[str, str]]:

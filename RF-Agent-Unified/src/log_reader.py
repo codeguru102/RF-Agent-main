@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-class PythonLogReader:
+class OfflineLogReader:
     def __init__(self, score_config: dict, dummy_failure: float = -10000.0, q_value_config: Optional[dict] = None):
         self.score_config = score_config
         self.dummy_failure = dummy_failure
@@ -258,3 +258,7 @@ def _validate_formula_ast(tree: ast.AST, variable_names: set) -> None:
                 raise ValueError("Only max, min, and abs calls are allowed in q_value formulas.")
         if isinstance(node, ast.Name) and node.id not in variable_names and node.id not in allowed_calls:
             raise ValueError(f"Unknown q_value formula variable: {node.id}")
+
+
+MatlabLogReader = OfflineLogReader
+PythonLogReader = OfflineLogReader

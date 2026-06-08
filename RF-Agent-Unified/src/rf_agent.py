@@ -109,7 +109,7 @@ class OfflineRFAgent:
                 action_type=action_type,
                 action_index=action_index,
                 generation=generation,
-                reward_language=self.task_config.get("reward_language", "matlab"),
+                reward_language=self.task_config.get("reward_language", "python"),
                 reward_code=reward_code,
                 design_thought=design_thought,
                 prompt_messages=messages,
@@ -165,16 +165,16 @@ class OfflineRFAgent:
        
 
         if not self.tree.trained_nodes():
+            reward_language = self.task_config.get("reward_language", "python")
             raise RuntimeError(
                 "No trained candidates are available for mutation or selection. "
-                "Run your MATLAB trainer on the pending initial candidates before generating more."
+                f"Run your {reward_language} trainer on the pending initial candidates before generating more."
             )
 
         node = self.tree.root
         path = [{"node_id": "root", "uct_score": None, "reason": "start"}]
         max_depth = int(self.agent_config.get("tree_max_depth", 16))
 
-        print(node)
         while node.children and node.depth < max_depth:
             pending_children = [child for child in node.children if child.candidate and child.candidate.is_pending]
             if pending_children:

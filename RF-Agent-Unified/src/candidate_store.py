@@ -65,7 +65,15 @@ class CandidateStore:
             status = load_json(status_path) if status_path.exists() else {"status": metadata.get("status", "unknown")}
             summary_path = folder / "summary.json"
             summary = load_json(summary_path) if summary_path.exists() else None
-            reward_file = folder / metadata.get("reward_file", "reward_fcn.py")
+            reward_language = str(metadata.get("reward_language", "")).lower()
+            default_reward = "reward_fcn.m" if reward_language in {"matlab", "m"} else "reward_fcn.py"
+            reward_file = folder / metadata.get("reward_file", default_reward)
+            if not reward_file.exists():
+                for fallback in ("reward_fcn.py", "reward_fcn.m", "reward.py", "reward.m"):
+                    fallback_path = folder / fallback
+                    if fallback_path.exists():
+                        reward_file = fallback_path
+                        break
             reward_code = reward_file.read_text(encoding="utf-8") if reward_file.exists() else ""
             candidates.append(
                 Candidate(
@@ -135,7 +143,8 @@ class CandidateStore:
         logs_dir = folder / "logs"
         logs_dir.mkdir(parents=True, exist_ok=False)
 
-        reward_file = "reward_fcn.py"
+        reward_language = reward_language.lower()
+        reward_file = "reward_fcn.m" if reward_language in {"matlab", "m"} else "reward_fcn.py"
         metadata = {
             "candidate_id": candidate_id,
             "parent_id": parent_id,
@@ -143,7 +152,7 @@ class CandidateStore:
             "action_index": action_index,
             "generation": generation,
             "created_at": utc_now(),
-            "created_by": "rf-agent-python",
+            "created_by": "rf-agent-unified",
             "reward_language": reward_language,
             "reward_file": reward_file,
             "design_thought": design_thought,

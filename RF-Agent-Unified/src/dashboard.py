@@ -7,7 +7,7 @@ from typing import Iterable, List, Optional, Tuple
 
 from config import load_json, save_json
 from candidate_store import CandidateStore
-from matlab_log_reader import MatlabLogReader
+from log_reader import OfflineLogReader
 from recommendations import best_trained_summary, training_recommendations
 from task_loader import load_task_folder
 from tree import SearchNode, SearchTree
@@ -93,7 +93,7 @@ def render_dashboard_for_task(
     task_config = load_task_folder(task_dir)
     agent_config = load_json(agent_config_path)
     store = CandidateStore(Path(task_dir) / "candidates")
-    log_reader = MatlabLogReader(
+    log_reader = OfflineLogReader(
         task_config.get("score", {}),
         dummy_failure=float(agent_config.get("dummy_failure", -10000.0)),
         q_value_config=task_config.get("q_value_settings") or task_config.get("fitness_score_settings"),

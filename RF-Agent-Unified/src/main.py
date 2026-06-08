@@ -12,7 +12,7 @@ from console import print_error, print_info, print_success, print_warning
 from dashboard import render_dashboard
 from feedback_builder import FeedbackBuilder
 from llm_client import LLMClient
-from python_log_reader import PythonLogReader
+from log_reader import OfflineLogReader
 from recommendations import print_training_recommendations
 from rf_agent import OfflineRFAgent
 from task_loader import load_task_folder
@@ -20,8 +20,8 @@ from tree import SearchTree
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Offline RF-Agent for Python training logs.")
-    parser.add_argument("--task-dir", default="tasks/python_task")
+    parser = argparse.ArgumentParser(description="Offline RF-Agent for Python or MATLAB training logs.")
+    parser.add_argument("--task-dir", default="tasks/Motor_New")
     parser.add_argument("--agent-config", default="configs/agent.json")
     parser.add_argument("--prompt-dir", default="prompts")
     parser.add_argument("--dry-run", action="store_true", help="Generate placeholder rewards without calling an LLM.")
@@ -35,8 +35,10 @@ def parse_args():
 def build_context(args):
     task_config = load_task_folder(Path(args.task_dir))
     agent_config = load_json(args.agent_config)
+    reward_language = str(task_config.get("reward_language", "python")).lower()
+    prompt_dir = resolve_prompt_dir(Path(args.prompt_dir), reward_language)
     store = CandidateStore(Path(args.task_dir) / "candidates")
-    log_reader = PythonLogReader(
+    log_reader = OfflineLogReader(
         task_config.get("score", {}),
         dummy_failure=float(agent_config.get("dummy_failure", -10000.0)),
         q_value_config=task_config.get("q_value_settings") or task_config.get("fitness_score_settings"),
@@ -53,18 +55,29 @@ def build_context(args):
         model=agent_config.get("model", "gpt-4o-mini"),
         temperature=float(agent_config.get("temperature", 1.0)),
         dry_run=args.dry_run,
-        dry_run_reward_signature=task_config.get("reward_signature", "def reward_fcn(state, u_action, prev_u_action=None, flag=None):"),
+        dry_run_reward_signature=task_config.get("reward_signature", default_reward_signature(reward_language)),
     )
     agent = OfflineRFAgent(
         task_config=task_config,
         agent_config=agent_config,
-        prompt_dir=Path(args.prompt_dir),
+        prompt_dir=prompt_dir,
         store=store,
         tree=tree,
         feedback_builder=feedback_builder,
         llm_client=llm_client,
     )
     return task_config, agent_config, store, tree, agent
+
+
+def resolve_prompt_dir(prompt_root: Path, reward_language: str) -> Path:
+    language_dir = prompt_root / reward_language
+    return language_dir if language_dir.exists() else prompt_root
+
+
+def default_reward_signature(reward_language: str) -> str:
+    if reward_language in {"matlab", "m"}:
+        return "function reward = reward_fcn(state, u_action, prev_u_action, flag)"
+    return "def reward_fcn(state, u_action, prev_u_action=None, flag=None):"
 
 
 def inspect_state(tree: SearchTree, task_name: str, elite_ids: List[str], elite_limit: int):
@@ -154,7 +167,9 @@ def export_best_reward(task_dir: Path, tree: SearchTree):
     if best is None or best.candidate is None:
         return {}
 
-    reward_path = task_dir / "best_reward_fcn.py"
+    reward_file = str(best.candidate.metadata.get("reward_file", "reward_fcn.py"))
+    suffix = Path(reward_file).suffix or ".py"
+    reward_path = task_dir / f"best_reward_fcn{suffix}"
     summary_path = task_dir / "best_reward_summary.json"
     reward_path.write_text(best.candidate.reward_code.rstrip() + "\n", encoding="utf-8")
     save_json(
@@ -176,7 +191,7 @@ def export_best_reward(task_dir: Path, tree: SearchTree):
     }
 
 
-def sync_candidate_summaries(store: CandidateStore, log_reader: PythonLogReader):
+def sync_candidate_summaries(store: CandidateStore, log_reader: OfflineLogReader):
     synced = []
     for candidate in store.scan():
         if candidate.summary is not None or candidate.is_failed:
@@ -210,14 +225,14 @@ def run_cli() -> int:
         print_warning("Canceled by user.")
         return 130
     except Exception as exc:
-        print_error(f"RF-Agent-Python failed: {exc}")
+        print_error(f"RF-Agent-Unified failed: {exc}")
         if args.debug:
             traceback.print_exc()
         else:
             print_info("Run again with --debug to show the full traceback.")
         return 1
 
-    print_success("RF-Agent-Python finished successfully.")
+    print_success("RF-Agent-Unified finished successfully.")
     return 0
 
 
