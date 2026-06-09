@@ -14,6 +14,11 @@ from reward_validator import validate_reward_code
 from tree import SearchNode, SearchTree
 
 
+class _SafeFormatDict(dict):
+    def __missing__(self, key):
+        return ""
+
+
 ACTION_ORDER = [
     "mutation",
     "crossover_elite",
@@ -293,7 +298,12 @@ class OfflineRFAgent:
         return []
 
     def _build_messages(self, parent: Optional[SearchNode], action_type: str, source_nodes: List[SearchNode]) -> List[dict]:
-        system = self._prompt("initial_system.txt") + "\n\n" + self._prompt("output_format.txt")
+        system_parts = [
+            self._prompt("initial_system.txt"),
+            self._optional_prompt("code_output_tip.txt"),
+            self._prompt("output_format.txt"),
+        ]
+        system = "\n\n".join(part for part in system_parts if part.strip())
         user_parts = [self._base_user_prompt()]
 
         if action_type == "initialize":
@@ -305,29 +315,33 @@ class OfflineRFAgent:
             prompt_file = "mutation_mechanism.txt" if action_type == "mutation_mechanism" else "mutation_param.txt"
             source = source_nodes[0]
             user_parts.append(
-                self._prompt(prompt_file).format(
-                    design_thought=source.metadata.get("design_thought", ""),
+                self._format_prompt(
+                    prompt_file,
+                    source_node=source,
                     reward_function=source.candidate.reward_code,
                     trained_results=self.feedback_builder.build(source.candidate),
                 )
             )
         elif action_type == "crossover_elite":
             user_parts.append(
-                self._prompt("crossover_elite.txt").format(
+                self._format_prompt(
+                    "crossover_elite.txt",
                     nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
         elif action_type == "tree_reasoning":
             user_parts.append(
-                self._prompt("tree_reasoning.txt").format(
+                self._format_prompt(
+                    "tree_reasoning.txt",
                     nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
         elif action_type == "different_thought":
             user_parts.append(
-                self._prompt("different_thought.txt").format(
+                self._format_prompt(
+                    "different_thought.txt",
                     nums=len(source_nodes),
                     reward_func_group=self._format_node_group(source_nodes)
                 )
@@ -394,6 +408,35 @@ class OfflineRFAgent:
     def _prompt(self, filename: str) -> str:
         return (self.prompt_dir / filename).read_text(encoding="utf-8").strip()
 
+    def _optional_prompt(self, filename: str) -> str:
+        path = self.prompt_dir / filename
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+
+    def _format_prompt(self, filename: str, **kwargs) -> str:
+        context = self._prompt_context()
+        source_node = kwargs.pop("source_node", None)
+        if source_node is not None:
+            design_idea = source_node.metadata.get("design_thought", "")
+            context.update(
+                {
+                    "design_idea": design_idea,
+                    "design_thought": design_idea,
+                }
+            )
+        context.update(kwargs)
+        return self._prompt(filename).format_map(_SafeFormatDict(context))
+
+    def _prompt_context(self) -> Dict[str, object]:
+        return {
+            "epoch_freq": self.agent_config.get(
+                "epoch_freq",
+                self.agent_config.get("eval_epoch_freq", self.agent_config.get("train_epoch_freq", 1)),
+            ),
+            "trained_result_analysis_tip": self._optional_prompt("result_analysis.txt"),
+        }
+
     def _generate_valid_reward(
         self,
         messages: List[dict],
@@ -432,9 +475,13 @@ class OfflineRFAgent:
     def _build_retry_messages(self, base_messages: List[dict], reward_code: str, error_message: str) -> List[dict]:
         feedback_path = self.prompt_dir / "initial_failed_feedback.txt"
         if feedback_path.exists():
-            feedback = feedback_path.read_text(encoding="utf-8").strip().format(
-                reward_function=reward_code or "(no reward code parsed)",
-                traceback_msg=error_message,
+            feedback = feedback_path.read_text(encoding="utf-8").strip().format_map(
+                _SafeFormatDict(
+                    {
+                        "reward_function": reward_code or "(no reward code parsed)",
+                        "traceback_msg": error_message,
+                    }
+                )
             )
         else:
             feedback = "\n".join(
@@ -468,9 +515,14 @@ class OfflineRFAgent:
                 "role": "user",
                 "content": self._base_user_prompt()
                 + "\n\n"
-                + prompt_path.read_text(encoding="utf-8").strip().format(
-                    design_thought=design_thought,
-                    reward_function=reward_code,
+                + prompt_path.read_text(encoding="utf-8").strip().format_map(
+                    _SafeFormatDict(
+                        {
+                            "design_thought": design_thought,
+                            "design_idea": design_thought,
+                            "reward_function": reward_code,
+                        }
+                    )
                 ),
             },
         ]

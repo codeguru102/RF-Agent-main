@@ -9,6 +9,6 @@ Output exactly one JSON object:
 
 The MATLAB code must define reward_fcn and must be self-contained.
 Do not change the configured input/output signature.
-Do not import unavailable project-specific helpers.
+Do not call unavailable project-specific helpers.
 Do not give additional explanations outside the JSON object.
 The generated candidate will be saved as reward_fcn.m.

@@ -7,3 +7,4 @@ RF-Agent-Matlab/.env
 **/tasks/
 **/__pycache__/
 PROMPT_PIPELINE_COMPARISON.md
+.env

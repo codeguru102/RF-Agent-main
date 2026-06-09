@@ -1,5 +1,8 @@
-I have {nums} existing reward functions related to evolution in sequence with their design ideas, codes, scores, actions, and offline training feedback as follows.
+I have {nums} existing reward functions related to evolution in sequence with their design ideas and codes as follows.
+Additionally, we trained RL policy using the provided reward function code respectively and tracked the values of the individual components in the reward function as well as global policy metrics such as success rates and episode lengths after every {epoch_freq} epochs and the maximum, mean, minimum values encountered.
 
 {reward_func_group}
+Analysis tips for trained results:
+{trained_result_analysis_tip}
 
-Please create a new reward function inspired by all the above reward functions. Reason about the evolution path, preserve ideas and components that clearly helped the score, correct changes that harmed the score or caused instability, and produce a new reward function with a higher task score than any of them.
+Please create a new reward function inspired by all the above reward functions. Try to reason the evolution path and list some ideas in those reward functions that are clearly helpful to a better improvement. The new reward function should have a higher task score than any of them.
