@@ -215,7 +215,7 @@ def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[st
 
     Returns (new_parent_id, child_ids). Edits the children's metadata.json on
     disk, moves the removed candidate folder into candidates/_removed/, and
-    cleans up elite_set.json / latest_generation.json references.
+    cleans up latest_generation.json references.
     """
     candidates_dir = Path(candidates_dir)
     folders = _scan_candidate_folders(candidates_dir)
@@ -294,19 +294,6 @@ def _digits(text: str) -> Optional[int]:
 
 
 def _clean_reference_files(candidates_dir: Path, node_id: str, parent_id: Optional[str]) -> None:
-    elite_path = candidates_dir / "elite_set.json"
-    if elite_path.exists():
-        try:
-            data = json.loads(elite_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("candidate_ids"), list):
-                data["candidate_ids"] = [c for c in data["candidate_ids"] if c != node_id]
-                elite_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            elif isinstance(data, list):
-                cleaned = [c for c in data if c != node_id]
-                elite_path.write_text(json.dumps(cleaned, indent=2), encoding="utf-8")
-        except (ValueError, OSError):
-            pass
-
     latest_path = candidates_dir / "latest_generation.json"
     if latest_path.exists():
         try:

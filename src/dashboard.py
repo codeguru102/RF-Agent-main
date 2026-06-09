@@ -104,14 +104,12 @@ def render_dashboard_for_task(
         float(agent_config.get("dummy_failure", -10000.0)),
         max_simulations=int(agent_config.get("simulations", 80)),
     )
-    elite_ids = store.load_elite_ids()
     return render_dashboard(
         tree=tree,
         task_name=task_config["task_name"],
         agent_config=agent_config,
         output_dir=Path(task_dir) / "visualization",
         latest_decisions=latest_decisions,
-        elite_node_ids=elite_ids,
         show_window=show_window,
     )
 
@@ -123,7 +121,6 @@ def render_dashboard(
     agent_config: dict,
     output_dir: Path,
     latest_decisions: Optional[List[dict]] = None,
-    elite_node_ids: Optional[List[str]] = None,
     best_node_id: Optional[str] = None,
     show_window: bool = True,
 ):
@@ -142,7 +139,7 @@ def render_dashboard(
         if decision.get("candidate_id")
     }
     elite_display_limit = int(agent_config.get("dashboard_elite_max", agent_config.get("elite_control_num", 4)))
-    elite_display_nodes = tree.elite_set_nodes(elite_node_ids or [], elite_display_limit)
+    elite_display_nodes = tree.elite_nodes(elite_display_limit)
     elite_ids = {node.candidate_id for node in elite_display_nodes}
     pending_ids = {node.candidate_id for node in tree.pending_nodes()}
     best = tree.best_node()

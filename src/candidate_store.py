@@ -96,34 +96,6 @@ class CandidateStore:
                 max_id = max(max_id, int(match.group(1)))
         return f"candidate_{max_id + 1:03d}"
 
-    def load_elite_ids(self) -> List[str]:
-        elite_path = self.root / "elite_set.json"
-        if elite_path.exists():
-            data = load_json(elite_path)
-            if isinstance(data, list):
-                return [str(item) for item in data]
-            return [str(item) for item in data.get("candidate_ids", [])]
-
-        latest_path = self.root / "latest_generation.json"
-        if not latest_path.exists():
-            return []
-        latest = load_json(latest_path)
-        ids = []
-        for decision in latest:
-            selected_id = decision.get("selected_tree_node_id") or decision.get("parent_id")
-            if selected_id and selected_id not in ids:
-                ids.append(selected_id)
-        return ids
-
-    def save_elite_ids(self, candidate_ids: Iterable[str]) -> None:
-        save_json(
-            self.root / "elite_set.json",
-            {
-                "candidate_ids": list(candidate_ids),
-                "updated_at": utc_now(),
-            },
-        )
-
     def create_candidate(
         self,
         *,

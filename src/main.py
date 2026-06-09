@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import traceback
 from pathlib import Path
-from typing import List
 
 from candidate_store import CandidateStore
 from candidate_store import utc_now
@@ -80,10 +79,10 @@ def default_reward_signature(reward_language: str) -> str:
     return "def reward_fcn(state, u_action, prev_u_action=None, flag=None):"
 
 
-def inspect_state(tree: SearchTree, task_name: str, elite_ids: List[str], elite_limit: int):
+def inspect_state(tree: SearchTree, task_name: str, elite_limit: int):
     trained = tree.trained_nodes()
     pending = tree.pending_nodes()
-    elites = tree.elite_set_nodes(elite_ids, elite_limit)
+    elites = tree.elite_nodes(elite_limit)
     print(f"Task: {task_name}")
     print(f"Total candidates: {len(tree.nodes) - 1}")
     print(f"Trained candidates: {len(trained)}")
@@ -128,7 +127,7 @@ def main(args=None):
 
     # Default: open the interactive dashboard window directly.
     elite_limit = int(agent_config.get("dashboard_elite_max", agent_config.get("elite_control_num", 4)))
-    inspect_state(tree, task_config["task_name"], store.load_elite_ids(), elite_limit)
+    inspect_state(tree, task_config["task_name"], elite_limit)
     render_and_print(args, task_config, agent_config, store, tree, show_window=True)
 
 
@@ -146,7 +145,6 @@ def render_and_print(args, task_config, agent_config, store, tree, latest_decisi
         agent_config=agent_config,
         output_dir=output_dir,
         latest_decisions=latest_decisions,
-        elite_node_ids=store.load_elite_ids(),
         best_node_id=best_paths.get("candidate_id"),
         show_window=show_window,
     )

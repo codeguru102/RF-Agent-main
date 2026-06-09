@@ -77,8 +77,6 @@ class OfflineRFAgent:
         selection_c_param = self._current_c_param()
         parent = self._select_node_for_expansion(selection_c_param)
         self.last_selected_node_id = None if parent is None else parent.candidate_id
-        if parent is not None:
-            self._remember_elite_parent(parent)
 
         action_plan = self._action_plan_for_selected_node(parent, num_candidates)
         total_actions = len(action_plan)
@@ -287,9 +285,10 @@ class OfflineRFAgent:
             return [parent]
 
         if action_type == "crossover_elite":
-            elites = self._elite_set_nodes()
+            elites = self._elite_nodes()
             max_count = int(self.agent_config.get("elite_control_num", 4))
             count = self.random.randint(2, max(max_count, 2)) - 1
+            elites = [node for node in elites if node.candidate_id != parent.candidate_id]
             return self._weighted_elite_choices(elites, count) + [parent]
 
         if action_type == "tree_reasoning":
@@ -714,21 +713,8 @@ class OfflineRFAgent:
             return 0
         return 1 + max(self._max_trained_depth_below(child) for child in trained_children)
 
-    def _elite_set_nodes(self) -> List[SearchNode]:
-        return self.tree.elite_set_nodes(
-            self.store.load_elite_ids(),
-            int(self.agent_config.get("elite_max_length", 10)),
-        )
-
-    def _remember_elite_parent(self, parent: SearchNode) -> None:
-        elite_ids = self.store.load_elite_ids()
-        if parent.candidate_id not in elite_ids:
-            elite_ids.append(parent.candidate_id)
-
-        elite_nodes = self.tree.elite_set_nodes(elite_ids)
-        max_length = int(self.agent_config.get("elite_max_length", 10))
-        elite_nodes = sorted(elite_nodes, key=lambda node: node.q_leaf_value, reverse=True)[:max_length]
-        self.store.save_elite_ids(node.candidate_id for node in elite_nodes)
+    def _elite_nodes(self) -> List[SearchNode]:
+        return self.tree.elite_nodes(int(self.agent_config.get("elite_max_length", 10)))
 
     def _maybe_cap_action_plan(
         self,

@@ -202,18 +202,13 @@ class SearchTree:
             if node is not self.root and node.candidate and node.candidate.is_pending
         ]
 
-    def elite_nodes(self, limit: int) -> List[SearchNode]:
+    def elite_nodes(self, limit: Optional[int] = None) -> List[SearchNode]:
         nodes = self.trained_nodes()
-        return sorted(nodes, key=lambda node: node.q_leaf_value, reverse=True)[:limit]
-
-    def elite_set_nodes(self, elite_ids: List[str], limit: Optional[int] = None) -> List[SearchNode]:
-        nodes = [
-            self.nodes[candidate_id]
-            for candidate_id in elite_ids
-            if candidate_id in self.nodes and self.nodes[candidate_id].is_trained
-        ]
-        nodes = sorted(nodes, key=lambda node: node.q_leaf_value, reverse=True)
+        nodes = sorted(nodes, key=self._elite_sort_key, reverse=True)
         return nodes[:limit] if limit is not None else nodes
+
+    def _elite_sort_key(self, node: SearchNode):
+        return (node.q_leaf_value, node.reward_cur, node.q_value)
 
     def best_node(self) -> Optional[SearchNode]:
         elites = self.elite_nodes(1)
