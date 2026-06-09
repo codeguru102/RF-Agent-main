@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import random
 import re
 from pathlib import Path
@@ -17,6 +18,10 @@ from tree import SearchNode, SearchTree
 class _SafeFormatDict(dict):
     def __missing__(self, key):
         return ""
+
+
+def _normalize_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
 
 
 ACTION_ORDER = [
@@ -318,6 +323,7 @@ class OfflineRFAgent:
                 self._format_prompt(
                     prompt_file,
                     source_node=source,
+                    source_nodes=[source],
                     reward_function=source.candidate.reward_code,
                     trained_results=self.feedback_builder.build(source.candidate),
                 )
@@ -327,6 +333,7 @@ class OfflineRFAgent:
                 self._format_prompt(
                     "crossover_elite.txt",
                     nums=len(source_nodes),
+                    source_nodes=source_nodes,
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
@@ -335,6 +342,7 @@ class OfflineRFAgent:
                 self._format_prompt(
                     "tree_reasoning.txt",
                     nums=len(source_nodes),
+                    source_nodes=source_nodes,
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
@@ -343,6 +351,7 @@ class OfflineRFAgent:
                 self._format_prompt(
                     "different_thought.txt",
                     nums=len(source_nodes),
+                    source_nodes=source_nodes,
                     reward_func_group=self._format_node_group(source_nodes)
                 )
             )
@@ -415,8 +424,11 @@ class OfflineRFAgent:
         return path.read_text(encoding="utf-8").strip()
 
     def _format_prompt(self, filename: str, **kwargs) -> str:
-        context = self._prompt_context()
+        source_nodes = kwargs.pop("source_nodes", None)
         source_node = kwargs.pop("source_node", None)
+        if source_nodes is None and source_node is not None:
+            source_nodes = [source_node]
+        context = self._prompt_context(source_nodes)
         if source_node is not None:
             design_idea = source_node.metadata.get("design_thought", "")
             context.update(
@@ -428,14 +440,139 @@ class OfflineRFAgent:
         context.update(kwargs)
         return self._prompt(filename).format_map(_SafeFormatDict(context))
 
-    def _prompt_context(self) -> Dict[str, object]:
+    def _prompt_context(self, source_nodes: Optional[List[SearchNode]] = None) -> Dict[str, object]:
         return {
-            "epoch_freq": self.agent_config.get(
-                "epoch_freq",
-                self.agent_config.get("eval_epoch_freq", self.agent_config.get("train_epoch_freq", 1)),
-            ),
+            "epoch_freq": self._csv_cadence_description(source_nodes or []),
             "trained_result_analysis_tip": self._optional_prompt("result_analysis.txt"),
         }
+
+    def _csv_cadence_description(self, source_nodes: List[SearchNode]) -> str:
+        explicit = self._config_value("csv_row_cadence", "csv_cadence", "training_log_cadence")
+        if explicit not in (None, ""):
+            return str(explicit)
+
+        row_interval = self._config_value("csv_row_interval_steps", "csv_step_interval", "csv_row_interval")
+        if row_interval not in (None, ""):
+            unit = str(self._config_value("csv_row_unit", "csv_unit") or "environment step")
+            return f"each CSV row represents {self._format_number(row_interval)} {self._pluralize(unit, row_interval)}"
+
+        legacy_epoch_freq = self.agent_config.get("epoch_freq", self.agent_config.get("eval_epoch_freq", self.agent_config.get("train_epoch_freq")))
+        if legacy_epoch_freq not in (None, ""):
+            return f"each CSV row represents {self._format_number(legacy_epoch_freq)} training {self._pluralize('epoch', legacy_epoch_freq)}"
+
+        inferred = self._infer_csv_cadence(source_nodes)
+        if inferred:
+            return inferred
+
+        return "each CSV row represents 1 environment step"
+
+    def _config_value(self, *names: str):
+        for config in (self.task_config, self.agent_config):
+            for name in names:
+                if name in config:
+                    return config[name]
+        return None
+
+    def _infer_csv_cadence(self, source_nodes: List[SearchNode]) -> str:
+        for node in source_nodes:
+            candidate = node.candidate
+            if candidate is None:
+                continue
+            logs_dir = candidate.folder / "logs"
+            if not logs_dir.exists():
+                continue
+            for csv_path in sorted(logs_dir.glob("*.csv")):
+                inferred = self._infer_csv_cadence_from_file(csv_path)
+                if inferred:
+                    return inferred
+        return ""
+
+    def _infer_csv_cadence_from_file(self, csv_path: Path) -> str:
+        try:
+            with csv_path.open("r", encoding="utf-8", newline="") as file:
+                reader = csv.DictReader(file)
+                if not reader.fieldnames:
+                    return ""
+                cadence_column = self._cadence_column(reader.fieldnames)
+                if not cadence_column:
+                    return ""
+                values = []
+                for row_index, row in enumerate(reader):
+                    if row_index >= 1000:
+                        break
+                    try:
+                        values.append(float(row.get(cadence_column, "")))
+                    except (TypeError, ValueError):
+                        continue
+        except OSError:
+            return ""
+
+        diffs = [
+            values[index] - values[index - 1]
+            for index in range(1, len(values))
+            if values[index] > values[index - 1]
+        ]
+        if not diffs:
+            return ""
+        diffs = sorted(diffs)
+        delta = diffs[len(diffs) // 2]
+        unit = self._cadence_unit(cadence_column)
+        return (
+            f"each CSV row represents about {self._format_number(delta)} "
+            f"{self._pluralize(unit, delta)} based on the '{cadence_column}' column"
+        )
+
+    def _cadence_column(self, fieldnames: List[str]) -> str:
+        priority = [
+            "step",
+            "global_step",
+            "env_step",
+            "environment_step",
+            "timestep",
+            "time_step",
+            "simulation_step",
+            "epoch",
+            "episode",
+            "iteration",
+            "iter",
+            "time",
+            "t",
+        ]
+        normalized = {_normalize_name(name): name for name in fieldnames}
+        for name in priority:
+            if name in normalized:
+                return normalized[name]
+        return ""
+
+    def _cadence_unit(self, column_name: str) -> str:
+        normalized = _normalize_name(column_name)
+        if "epoch" in normalized:
+            return "training epoch"
+        if "episode" in normalized:
+            return "episode"
+        if normalized in {"time", "t"} or "time" in normalized:
+            return "time unit"
+        return "environment step"
+
+    def _format_number(self, value) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if numeric.is_integer():
+            return str(int(numeric))
+        return f"{numeric:.6g}"
+
+    def _pluralize(self, unit: str, value) -> str:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 2.0
+        if abs(numeric - 1.0) < 1e-9:
+            return unit
+        if unit.endswith("s"):
+            return unit
+        return unit + "s"
 
     def _generate_valid_reward(
         self,

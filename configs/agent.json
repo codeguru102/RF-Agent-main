@@ -16,6 +16,8 @@
   "max_same_try_cnt": 3,
   "enable_self_verify": true,
   "dummy_failure": -10000.0,
+  "csv_row_interval_steps": 1,
+  "csv_row_unit": "environment step",
   "expansion_size": 4,
   "action_probabilities": {
     "mutation": 0.3,

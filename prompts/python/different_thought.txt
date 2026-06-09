@@ -1,5 +1,5 @@
 I have {nums} existing reward functions with their design ideas and codes as follows.
-Additionally, we trained RL policy using the provided reward function code respectively and tracked the values of the individual components in the reward function as well as global policy metrics such as success rates and episode lengths after every {epoch_freq} epochs and the maximum, mean, minimum values encountered.
+Additionally, we trained RL policy using the provided reward function code respectively and tracked the values of the individual components in the reward function as well as global policy metrics such as success rates and episode lengths using CSV logs where {epoch_freq}; the maximum, mean, and minimum values encountered are included below.
 
 {reward_func_group}
 Analysis tips for trained results:
