@@ -656,8 +656,26 @@ class OfflineRFAgent:
 
     def _root_branch_child(self, node: SearchNode) -> SearchNode:
         current = node
+        visited = set()
+        chain = []
         while current.parent_id and current.parent_id != "root":
-            current = self.tree.nodes.get(current.parent_id, current)
+            if current.candidate_id in visited:
+                chain_text = " -> ".join(chain + [current.candidate_id])
+                raise RuntimeError(
+                    f"Parent cycle detected while finding root branch for {node.candidate_id}: {chain_text}"
+                )
+            visited.add(current.candidate_id)
+            chain.append(current.candidate_id)
+
+            parent = self.tree.nodes.get(current.parent_id)
+            if parent is None:
+                raise RuntimeError(
+                    f"Candidate {current.candidate_id} references missing parent {current.parent_id}."
+                )
+            if parent is current:
+                raise RuntimeError(f"Candidate {current.candidate_id} is its own parent.")
+
+            current = parent
         return current
 
     def _max_trained_depth_below(self, node: SearchNode) -> int:
