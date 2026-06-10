@@ -99,7 +99,7 @@ def _generation_progress_label(tokens: dict, fallback_model: str) -> str:
     cid = tokens.get("id")
     phase = tokens.get("phase")
 
-    main = f"Generating using {model} (from agent.json)"
+    main = f"Generating using {model}"
     if phase == "generating" and action and total > 0:
         return f"{main}\n\nfrom {from_id} · {action}   ({step + 1} / {total})"
     if cid and action and total > 0:

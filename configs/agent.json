@@ -17,12 +17,5 @@
   "enable_self_verify": true,
   "dummy_failure": -10000.0,
   "csv_row_interval_steps": 1,
-  "csv_row_unit": "environment step",
-  "expansion_size": 4,
-  "action_probabilities": {
-    "mutation": 0.3,
-    "crossover_elite": 0.3,
-    "tree_reasoning": 0.2,
-    "different_thought": 0.2
-  }
+  "csv_row_unit": "environment step"
 }

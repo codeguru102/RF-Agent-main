@@ -31,13 +31,6 @@ ACTION_ORDER = [
     "different_thought",
 ]
 
-DEFAULT_ACTION_PROBABILITIES = {
-    "mutation": 0.30,
-    "crossover_elite": 0.30,
-    "tree_reasoning": 0.20,
-    "different_thought": 0.20,
-}
-
 
 class OfflineRFAgent:
     def __init__(
@@ -58,10 +51,6 @@ class OfflineRFAgent:
         self.tree = tree
         self.feedback_builder = feedback_builder
         self.llm_client = llm_client
-        self.expansion_size = int(agent_config.get("expansion_size", 4))
-        self.action_probabilities = self._normalize_action_probabilities(
-            agent_config.get("action_probabilities", DEFAULT_ACTION_PROBABILITIES)
-        )
         self.max_try_num = int(agent_config.get("max_try_num", 9))
         self.max_same_try_cnt = int(agent_config.get("max_same_try_cnt", 3))
         self.enable_self_verify = bool(agent_config.get("enable_self_verify", True))
@@ -241,44 +230,8 @@ class OfflineRFAgent:
         c_param_final = float(self.agent_config.get("c_param_final", 0.1))
         return (c_param_init - c_param_final) * (1.0 - progress) + c_param_final
 
-    def _available_actions(self, parent: SearchNode) -> List[Tuple[str, int]]:
-        used = set()
-        for child in parent.children:
-            if child.action_type is None:
-                continue
-            used.add((child.action_type, int(child.action_index or 0)))
-
-        return [
-            (action_type, action_index)
-            for action_type, action_index in self._full_action_bundle()
-            if (action_type, action_index) not in used
-        ]
-
     def _full_action_bundle(self) -> List[Tuple[str, int]]:
-        action_types = list(self.action_probabilities)
-        weights = [self.action_probabilities[action_type] for action_type in action_types]
-        sampled = self.random.choices(action_types, weights=weights, k=max(self.expansion_size, 0))
-        counts: Dict[str, int] = {}
-        actions = []
-        for action_type in sampled:
-            action_index = counts.get(action_type, 0)
-            counts[action_type] = action_index + 1
-            actions.append((action_type, action_index))
-        return actions
-
-    def _normalize_action_probabilities(self, probabilities: Dict[str, float]) -> Dict[str, float]:
-        probabilities = probabilities or DEFAULT_ACTION_PROBABILITIES
-        normalized = {}
-        for action_type in ACTION_ORDER:
-            value = probabilities.get(action_type, DEFAULT_ACTION_PROBABILITIES[action_type])
-            value = max(float(value), 0.0)
-            if value > 0:
-                normalized[action_type] = value
-
-        total = sum(normalized.values())
-        if total <= 0:
-            return dict(DEFAULT_ACTION_PROBABILITIES)
-        return {action_type: value / total for action_type, value in normalized.items()}
+        return [(action_type, 0) for action_type in ACTION_ORDER]
 
     def _source_nodes_for_action(self, parent: SearchNode, action_type: str) -> List[SearchNode]:
         if action_type in {"mutation", "mutation_mechanism", "mutation_param"}:
