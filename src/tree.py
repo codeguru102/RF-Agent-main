@@ -118,6 +118,7 @@ class SearchTree:
                 max_simulations,
                 histories=histories,
             )
+        self._refresh_global_q_bounds()
         return histories
 
     def recompute_q_histories(self) -> Dict[str, List[dict]]:
@@ -159,8 +160,6 @@ class SearchTree:
         node.q_value = q_value
         node.visits += 1
         node.total_reward += q_value
-        self.min_q = min(self.min_q, node.q_value)
-        self.max_q = max(self.max_q, node.q_value)
         self._record_q_snapshot(histories, leaf_id, sim_index, "leaf", leaf_id)
 
         parent = self.nodes.get(node.parent_id or "root")
@@ -181,6 +180,19 @@ class SearchTree:
             parent = self.nodes.get(parent.parent_id or "root")
 
         self.root.visits += 1
+
+    def _refresh_global_q_bounds(self) -> None:
+        q_values = [
+            node.q_value
+            for node in self.nodes.values()
+            if node is not self.root and (node.is_trained or node.visits > 0)
+        ]
+        if not q_values:
+            self.min_q = 0.0
+            self.max_q = 0.0
+            return
+        self.min_q = min(q_values)
+        self.max_q = max(q_values)
 
     def _replay_sort_key(self, node: SearchNode):
         status = node.candidate.status if node.candidate else {}
@@ -253,19 +265,9 @@ class SearchTree:
     def min_max_q(self):
         return self.min_q, self.max_q
 
-    def sibling_min_max_q(self, node: SearchNode):
-        parent = self.nodes.get(node.parent_id or "root", self.root)
-        sibling_q_values = [
-            child.q_value
-            for child in parent.children
-            if child.is_trained or child.visits > 0
-        ]
-        if not sibling_q_values:
-            return self.min_max_q()
-        return min(sibling_q_values), max(sibling_q_values)
-
     def uct_score(self, node: SearchNode, c_param: float) -> float:
-        q_min, q_max = self.sibling_min_max_q(node)
+        q_min, q_max = self.min_max_q()
+        print(f"q_min: {q_min}, q_max: {q_max}")
         eps = 1e-8
         q_norm = (node.q_value - q_min) / (q_max - q_min + eps)
         parent = self.nodes.get(node.parent_id or "root", self.root)
