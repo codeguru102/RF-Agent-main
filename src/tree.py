@@ -267,7 +267,6 @@ class SearchTree:
 
     def uct_score(self, node: SearchNode, c_param: float) -> float:
         q_min, q_max = self.min_max_q()
-        print(f"q_min: {q_min}, q_max: {q_max}")
         eps = 1e-8
         q_norm = (node.q_value - q_min) / (q_max - q_min + eps)
         parent = self.nodes.get(node.parent_id or "root", self.root)

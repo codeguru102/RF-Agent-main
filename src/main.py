@@ -53,6 +53,8 @@ def build_context(args):
     llm_client = LLMClient(
         model=agent_config.get("model", "gpt-4o-mini"),
         temperature=float(agent_config.get("temperature", 1.0)),
+        provider=agent_config.get("provider", agent_config.get("llm_provider")),
+        max_tokens=int(agent_config.get("max_tokens", 4096)),
         dry_run=args.dry_run,
         dry_run_reward_signature=task_config.get("reward_signature", default_reward_signature(reward_language)),
     )

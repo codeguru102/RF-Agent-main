@@ -71,6 +71,7 @@ class OfflineRFAgent:
         total_actions = len(action_plan)
         parent_id = "root" if parent is None else parent.candidate_id
         model = self.agent_config.get("model", "unknown")
+        llm_name = self.llm_client.display_name()
         print(
             f"PROGRESS total={total_actions} step=0 from={parent_id} model={model}",
             flush=True,
@@ -84,7 +85,7 @@ class OfflineRFAgent:
             )
             parent_uct_at_selection = None if parent is None else self.tree.uct_score(parent, selection_c_param)
             messages = self._build_messages(parent, action_type, source_nodes)
-            label = self._operation_label("OpenAI reward generation", parent, action_type, action_index)
+            label = self._operation_label(f"{llm_name} reward generation", parent, action_type, action_index)
             with Spinner(label, enabled=not self.llm_client.dry_run) as spinner:
                 design_thought, reward_code, response, validation_attempts = self._generate_valid_reward(
                     messages,
@@ -94,7 +95,7 @@ class OfflineRFAgent:
 
             self_verify_score = 0.0
             if self.enable_self_verify and not self.llm_client.dry_run:
-                label = self._operation_label("OpenAI self verification", parent, action_type, action_index)
+                label = self._operation_label(f"{llm_name} self verification", parent, action_type, action_index)
                 with Spinner(label) as spinner:
                     self_verify_score = self._self_verify_reward(design_thought, reward_code)
                     spinner.succeed(f"Self-verify score for {action_type}[{action_index}]: {self_verify_score:.3f}")
@@ -540,7 +541,7 @@ class OfflineRFAgent:
                 same_try_cnt = 0
 
             if status is not None:
-                status(f"OpenAI reward generation attempt {attempt}/{self.max_try_num}")
+                status(f"{self.llm_client.display_name()} reward generation attempt {attempt}/{self.max_try_num}")
             response = self.llm_client.complete(current_messages)
             design_thought, reward_code = parse_reward_response(response)
             if not reward_code:

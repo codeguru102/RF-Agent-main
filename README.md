@@ -161,9 +161,9 @@ Your RL trainer (Python or MATLAB) should:
 
 See [python/run_pending_candidates_template.py](python/run_pending_candidates_template.py) for a Python worker and [matlab/run_pending_candidates_template.m](matlab/run_pending_candidates_template.m) for a MATLAB worker.
 
-## OpenAI API Setup
+## LLM API Setup
 
-Set an API key before running non-dry-run candidate generation:
+Set an API key before running non-dry-run candidate generation. For OpenAI:
 
 ```bash
 set OPENAI_API_KEY=your_key_here
@@ -173,6 +173,21 @@ On PowerShell:
 
 ```powershell
 $env:OPENAI_API_KEY = "your_key_here"
+```
+
+For Claude / Anthropic, put this in `.env` or set it in your shell:
+
+```bash
+ANTHROPIC_API_KEY=your_key_here
+```
+
+To use Claude, set the provider and model in `configs/agent.json`:
+
+```json
+{
+  "llm_provider": "anthropic",
+  "model": "claude-sonnet-4-6"
+}
 ```
 
 You can now use RF-Agent for folder-backed RL reward search in your Python **or** MATLAB projects.

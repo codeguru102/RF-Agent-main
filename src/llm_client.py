@@ -4,8 +4,13 @@ import os
 import json
 import re
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import List
+from typing import List, Optional
+
+
+DEFAULT_MAX_TOKENS = 4096
 
 
 class LLMClient:
@@ -13,11 +18,15 @@ class LLMClient:
         self,
         model: str,
         temperature: float = 1.0,
+        provider: Optional[str] = None,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
         dry_run: bool = False,
         dry_run_reward_signature: str = "function reward = reward_fcn(state, u_action, prev_u_action, flag)",
     ):
         self.model = model
         self.temperature = temperature
+        self.provider = normalize_explicit_provider(provider)
+        self.max_tokens = int(max_tokens or DEFAULT_MAX_TOKENS)
         self.dry_run = dry_run
         self.dry_run_reward_signature = dry_run_reward_signature
 
@@ -26,10 +35,32 @@ class LLMClient:
             return self._dry_run_response(messages)
 
         load_dotenv()
+        provider = self.current_provider()
+        if provider == "anthropic":
+            return self._complete_anthropic(messages)
+        return self._complete_openai(messages)
+
+    def current_provider(self) -> str:
+        return resolve_provider(self.provider, self.model)
+
+    def display_name(self) -> str:
+        model = (self.model or "unknown").strip()
+        if self.dry_run:
+            return f"dry-run {model}"
+
+        provider = self.current_provider()
+        model_lower = model.lower()
+        if provider == "anthropic":
+            return model if model_lower.startswith("claude") else f"Claude {model}"
+        if provider == "openai":
+            return model if model_lower.startswith(("gpt", "o1", "o3", "o4")) else f"OpenAI {model}"
+        return model
+
+    def _complete_openai(self, messages: List[dict]) -> str:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set. Put it in RF-Agent-Unified/.env or use --dry-run.")
-        proxy_url = configure_proxy_env()
+            raise RuntimeError("OPENAI_API_KEY is not set. Put it in .env or use --dry-run.")
+        proxy_url = configure_proxy_env("openai")
 
         try:
             from openai import DefaultHttpxClient, OpenAI
@@ -70,6 +101,29 @@ class LLMClient:
                         raise
                     time.sleep(1)
 
+    def _complete_anthropic(self, messages: List[dict]) -> str:
+        api_key = first_env_value("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY is not set. Put it in .env or use --dry-run.")
+        configure_proxy_env("anthropic")
+
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic(api_key=api_key)
+            request = anthropic_request_payload(messages, self.model, self.temperature, self.max_tokens)
+            for attempt in range(20):
+                try:
+                    response = client.messages.create(**request)
+                    return anthropic_response_text(response)
+                except Exception:
+                    if attempt == 19:
+                        raise
+                    time.sleep(1)
+        except ImportError:
+            request = anthropic_request_payload(messages, self.model, self.temperature, self.max_tokens)
+            return complete_anthropic_http(api_key, request)
+
     def _dry_run_response(self, messages: List[dict]) -> str:
         signature = self.dry_run_reward_signature.strip().rstrip(";")
         if signature.lstrip().startswith("def "):
@@ -85,6 +139,100 @@ class LLMClient:
             },
             indent=2,
         )
+
+
+def normalize_explicit_provider(provider: Optional[str]) -> str:
+    value = (provider or "").strip().lower()
+    if value in {"anthropic", "claude"}:
+        return "anthropic"
+    if value in {"openai", "gpt"}:
+        return "openai"
+    return ""
+
+
+def resolve_provider(provider: Optional[str], model: str) -> str:
+    explicit = normalize_explicit_provider(provider)
+    if explicit:
+        return explicit
+    model_name = (model or "").strip().lower()
+    if model_name.startswith("claude"):
+        return "anthropic"
+    return "openai"
+
+
+def anthropic_request_payload(messages: List[dict], model: str, temperature: float, max_tokens: int) -> dict:
+    system_parts = []
+    anthropic_messages = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = str(message.get("content", ""))
+        if role == "system":
+            system_parts.append(content)
+            continue
+        if role not in {"user", "assistant"}:
+            role = "user"
+        anthropic_messages.append({"role": role, "content": content})
+
+    request = {
+        "model": model,
+        "messages": merge_same_role_messages(anthropic_messages),
+        "max_tokens": int(max_tokens or DEFAULT_MAX_TOKENS),
+        "temperature": temperature,
+    }
+    if system_parts:
+        request["system"] = "\n\n".join(part for part in system_parts if part.strip())
+    return request
+
+
+def merge_same_role_messages(messages: List[dict]) -> List[dict]:
+    merged = []
+    for message in messages:
+        if merged and merged[-1]["role"] == message["role"]:
+            merged[-1]["content"] += "\n\n" + message["content"]
+        else:
+            merged.append(dict(message))
+    return merged or [{"role": "user", "content": ""}]
+
+
+def anthropic_response_text(response) -> str:
+    chunks = []
+    for block in getattr(response, "content", []) or []:
+        text = getattr(block, "text", None)
+        if text is not None:
+            chunks.append(text)
+    return "".join(chunks)
+
+
+def complete_anthropic_http(api_key: str, request_payload: dict) -> str:
+    body = json.dumps(request_payload).encode("utf-8")
+    for attempt in range(20):
+        try:
+            request = urllib.request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=body,
+                headers={
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                    "x-api-key": api_key,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = json.loads(response.read().decode("utf-8"))
+                return "".join(
+                    block.get("text", "")
+                    for block in data.get("content", [])
+                    if block.get("type") == "text"
+                )
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            if attempt == 19:
+                raise RuntimeError(f"Anthropic API error {exc.code}: {detail}") from exc
+            time.sleep(1)
+        except Exception:
+            if attempt == 19:
+                raise
+            time.sleep(1)
 
 
 def _python_dry_run_code(signature: str) -> str:
@@ -154,9 +302,10 @@ def load_dotenv(path: Path | None = None) -> None:
             os.environ[key] = value
 
 
-def configure_proxy_env() -> str:
+def configure_proxy_env(provider: str = "openai") -> str:
+    provider_proxy = "ANTHROPIC_PROXY" if provider == "anthropic" else "OPENAI_PROXY"
     proxy_url = first_env_value(
-        "OPENAI_PROXY",
+        provider_proxy,
         "PROXY",
         "HTTPS_PROXY",
         "HTTP_PROXY",
