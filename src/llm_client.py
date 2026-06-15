@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 import json
 import re
@@ -10,7 +12,17 @@ from pathlib import Path
 from typing import List, Optional
 
 
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 8192
+
+# Image file extensions we know how to send to the vision APIs.
+IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+IMAGE_EXTENSIONS = frozenset(IMAGE_MEDIA_TYPES)
 
 
 class LLMClient:
@@ -69,11 +81,12 @@ class LLMClient:
             if proxy_url:
                 client_kwargs["http_client"] = DefaultHttpxClient(proxy=proxy_url)
             client = OpenAI(**client_kwargs)
+            openai_messages = openai_messages_payload(messages)
             for attempt in range(20):
                 try:
                     response = client.chat.completions.create(
                         model=self.model,
-                        messages=messages,
+                        messages=openai_messages,
                         temperature=self.temperature,
                     )
                     return response.choices[0].message.content
@@ -87,11 +100,12 @@ class LLMClient:
             openai.api_key = api_key
             if proxy_url:
                 openai.proxy = proxy_url
+            openai_messages = openai_messages_payload(messages)
             for attempt in range(20):
                 try:
                     response = openai.ChatCompletion.create(
                         model=self.model,
-                        messages=messages,
+                        messages=openai_messages,
                         temperature=self.temperature,
                         n=1,
                     )
@@ -160,6 +174,40 @@ def resolve_provider(provider: Optional[str], model: str) -> str:
     return "openai"
 
 
+def image_media_type(path: Path) -> str:
+    media_type = IMAGE_MEDIA_TYPES.get(path.suffix.lower())
+    if media_type:
+        return media_type
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "image/png"
+
+
+def encode_image_base64(path: Path) -> str:
+    return base64.standard_b64encode(path.read_bytes()).decode("ascii")
+
+
+def anthropic_image_block(path: str) -> dict:
+    file_path = Path(path)
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image_media_type(file_path),
+            "data": encode_image_base64(file_path),
+        },
+    }
+
+
+def openai_image_part(path: str) -> dict:
+    file_path = Path(path)
+    data_url = f"data:{image_media_type(file_path)};base64,{encode_image_base64(file_path)}"
+    return {"type": "image_url", "image_url": {"url": data_url}}
+
+
+def message_images(message: dict) -> List[str]:
+    return [str(image) for image in (message.get("images") or []) if str(image).strip()]
+
+
 def anthropic_request_payload(messages: List[dict], model: str, temperature: float, max_tokens: int) -> dict:
     system_parts = []
     anthropic_messages = []
@@ -171,7 +219,7 @@ def anthropic_request_payload(messages: List[dict], model: str, temperature: flo
             continue
         if role not in {"user", "assistant"}:
             role = "user"
-        anthropic_messages.append({"role": role, "content": content})
+        anthropic_messages.append({"role": role, "content": anthropic_message_content(content, message)})
 
     request = {
         "model": model,
@@ -184,14 +232,64 @@ def anthropic_request_payload(messages: List[dict], model: str, temperature: flo
     return request
 
 
+def openai_messages_payload(messages: List[dict]) -> List[dict]:
+    """Strip our custom keys and convert attached images to OpenAI vision parts."""
+    payload = []
+    for message in messages:
+        role = message.get("role", "user")
+        content = str(message.get("content", ""))
+        images = message_images(message) if role != "system" else []
+        if not images:
+            payload.append({"role": role, "content": content})
+            continue
+
+        parts = []
+        if content.strip():
+            parts.append({"type": "text", "text": content})
+        for image in images:
+            try:
+                parts.append(openai_image_part(image))
+            except OSError:
+                continue
+        payload.append({"role": role, "content": parts or content})
+    return payload
+
+
+def anthropic_message_content(content: str, message: dict):
+    """Return a plain string, or a content-block list when images are attached."""
+    images = message_images(message)
+    if not images:
+        return content
+
+    blocks = []
+    for image in images:
+        try:
+            blocks.append(anthropic_image_block(image))
+        except OSError:
+            continue
+    if not blocks:
+        return content
+    if content.strip():
+        blocks.append({"type": "text", "text": content})
+    return blocks
+
+
 def merge_same_role_messages(messages: List[dict]) -> List[dict]:
     merged = []
     for message in messages:
         if merged and merged[-1]["role"] == message["role"]:
-            merged[-1]["content"] += "\n\n" + message["content"]
+            merged[-1]["content"] = concat_message_content(merged[-1]["content"], message["content"])
         else:
             merged.append(dict(message))
     return merged or [{"role": "user", "content": ""}]
+
+
+def concat_message_content(first, second):
+    if isinstance(first, list) or isinstance(second, list):
+        first_blocks = first if isinstance(first, list) else [{"type": "text", "text": str(first)}]
+        second_blocks = second if isinstance(second, list) else [{"type": "text", "text": str(second)}]
+        return first_blocks + second_blocks
+    return f"{first}\n\n{second}"
 
 
 def anthropic_response_text(response) -> str:

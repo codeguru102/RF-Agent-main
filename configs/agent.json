@@ -1,6 +1,6 @@
 {
   "llm_provider": "anthropic",
-  "model": "claude-fable-5",
+  "model": "claude-opus-4-8",
   "temperature": 1.0,
   "simulations": 80,
   "initial_size": 4,

@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from candidate_store import CandidateStore
 from console import Spinner
 from feedback_builder import FeedbackBuilder
-from llm_client import LLMClient
+from llm_client import IMAGE_EXTENSIONS, LLMClient
 from reward_parser import parse_reward_response
 from reward_validator import validate_reward_code
 from tree import SearchNode, SearchTree
@@ -54,6 +54,8 @@ class OfflineRFAgent:
         self.max_try_num = int(agent_config.get("max_try_num", 9))
         self.max_same_try_cnt = int(agent_config.get("max_same_try_cnt", 3))
         self.enable_self_verify = bool(agent_config.get("enable_self_verify", True))
+        self.include_images = bool(agent_config.get("include_images", True))
+        self.max_images_per_request = int(agent_config.get("max_images_per_request", 8))
         random_seed = agent_config.get("random_seed")
         self.random = random.Random(random_seed)
         self.last_generation_decisions: List[dict] = []
@@ -312,10 +314,52 @@ class OfflineRFAgent:
             raise ValueError(f"Unknown action type: {action_type}")
 
         user_parts.append(self._prompt("result_analysis.txt"))
+        user_message = {
+            "role": "user",
+            "content": "\n\n".join(part for part in user_parts if part.strip()),
+        }
+        images = self._collect_source_images(parent, source_nodes)
+        if images:
+            user_message["images"] = images
         return [
             {"role": "system", "content": system},
-            {"role": "user", "content": "\n\n".join(part for part in user_parts if part.strip())},
+            user_message,
         ]
+
+    def _collect_source_images(self, parent: Optional[SearchNode], source_nodes: List[SearchNode]) -> List[str]:
+        if not self.include_images:
+            return []
+
+        nodes: List[SearchNode] = []
+        if parent is not None:
+            nodes.append(parent)
+        nodes.extend(source_nodes)
+
+        images: List[str] = []
+        seen = set()
+        for node in nodes:
+            candidate = getattr(node, "candidate", None)
+            if candidate is None:
+                continue
+            for image_path in self._discover_images(candidate.folder):
+                key = str(image_path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                images.append(key)
+                if len(images) >= self.max_images_per_request:
+                    return images
+        return images
+
+    def _discover_images(self, folder: Optional[Path]) -> List[Path]:
+        if folder is None or not Path(folder).exists():
+            return []
+        found = [
+            path
+            for path in sorted(Path(folder).rglob("*"))
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        ]
+        return found
 
     def _base_user_prompt(self) -> str:
         variables = "\n".join(f"- {item}" for item in self.task_config.get("available_variables", []))
@@ -582,12 +626,15 @@ class OfflineRFAgent:
                     "Return one corrected JSON object with design_thought and reward_code.",
                 ]
             )
+        retry_user = {
+            "role": "user",
+            "content": base_messages[1]["content"] + "\n\n" + feedback,
+        }
+        if base_messages[1].get("images"):
+            retry_user["images"] = base_messages[1]["images"]
         return [
             base_messages[0],
-            {
-                "role": "user",
-                "content": base_messages[1]["content"] + "\n\n" + feedback,
-            },
+            retry_user,
         ]
 
     def _self_verify_reward(self, design_thought: str, reward_code: str) -> float:
