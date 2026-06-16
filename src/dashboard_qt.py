@@ -10,6 +10,7 @@ import json
 import re
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -355,6 +356,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
         self.on_open_metrics = None  # callback(candidate_id) on double-click
         self.on_selection_click = None  # callback(candidate_id, ctrl_pressed)
         self.on_compare_selected = None  # callback() open comparison dialog
+        self.on_toggle_good_to_train = None  # callback(candidate_id) from context menu
         self.setAcceptHoverEvents(True)
         self.setToolTip(self._tooltip())
         self._hover = False
@@ -369,11 +371,20 @@ class NodeCard(QtWidgets.QGraphicsItem):
         if self.node.get("candidate_id") == "root":
             return
         menu = QtWidgets.QMenu()
+        toggle_action = None
+        compare_action = None
+        if callable(self.on_toggle_good_to_train):
+            current = _as_bool(self.node.get("good_to_train"))
+            label = "Mark good_to_train = False" if current else "Mark good_to_train = True"
+            toggle_action = menu.addAction(label)
+            menu.addSeparator()
         if callable(self.on_compare_selected):
             compare_action = menu.addAction("Compare selected nodes…")
         remove_action = menu.addAction("Remove node")
         chosen = menu.exec_(event.screenPos())
-        if callable(self.on_compare_selected) and chosen == compare_action:
+        if chosen == toggle_action and callable(self.on_toggle_good_to_train):
+            self.on_toggle_good_to_train(self.node["candidate_id"])
+        elif callable(self.on_compare_selected) and chosen == compare_action:
             self.on_compare_selected()
         elif chosen == remove_action and callable(self.on_remove):
             self.on_remove(self.node["candidate_id"])
@@ -823,7 +834,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         h.addStretch(1)
         hint = QtWidgets.QLabel(
             "Ctrl+click to select multiple nodes · Compare selected · double-click for plots · "
-            "right-click to remove")
+            "right-click to toggle train status/remove")
         hint.setStyleSheet(f"color: {PALETTE['text_muted']}; font-size: 12px;")
         h.addWidget(hint)
         return bar
@@ -855,6 +866,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             card.on_open_metrics = self._open_node_metrics
             card.on_selection_click = self._on_node_selection_click
             card.on_compare_selected = self._open_compare_dialog
+            card.on_toggle_good_to_train = self._toggle_good_to_train
             card.set_multi_selected(cid in self._selected_ids)
             card.setPos(pos)
             card.setZValue(2)
@@ -974,6 +986,53 @@ class DashboardWindow(QtWidgets.QMainWindow):
             "Statuses loaded",
             f"Loaded status.json for {updated} candidate node(s).",
         )
+
+    def _toggle_good_to_train(self, node_id: str):
+        if node_id == "root":
+            return
+        node = next(
+            (n for n in self.data.get("nodes", []) if n.get("candidate_id") == node_id),
+            None,
+        )
+        if node is None:
+            return
+
+        next_value = not _as_bool(node.get("good_to_train"))
+        node["good_to_train"] = next_value
+        node["selected_for_training"] = (
+            node.get("status") in ("pending", "running") and next_value
+        )
+
+        if self.candidates_dir:
+            folder = _scan_candidate_folders(self.candidates_dir).get(node_id)
+            if folder is not None:
+                status_path = folder / "status.json"
+                status = _read_candidate_status(folder)
+                if not status:
+                    status = {
+                        "status": node.get("status", "pending"),
+                        "error_message": node.get("error_message", ""),
+                    }
+                status["status"] = status.get("status", node.get("status", "pending"))
+                status["good_to_train"] = next_value
+                status["updated_at"] = datetime.now(timezone.utc).isoformat()
+                try:
+                    status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+                except OSError as exc:
+                    node["good_to_train"] = not next_value
+                    node["selected_for_training"] = (
+                        node.get("status") in ("pending", "running")
+                        and _as_bool(node.get("good_to_train"))
+                    )
+                    QtWidgets.QMessageBox.critical(
+                        self,
+                        "Toggle failed",
+                        f"Could not update {status_path}:\n{exc}",
+                    )
+                    return
+
+        self._persist_tree_json()
+        self._refresh_view()
 
     # -- node metrics (double-click) -------------------------------------------
     def _open_node_metrics(self, node_id: str):
