@@ -253,20 +253,28 @@ def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[st
     return parent_id, child_ids
 
 
+def _result_logs_source(result_folder: Path) -> Path:
+    logs_dir = Path(result_folder) / "logs"
+    return logs_dir if logs_dir.is_dir() else Path(result_folder)
+
+
 def scan_result_folders(root: Path) -> List[dict]:
-    """Find immediate sub-folders that hold .csv logs, eval.txt, or feedback.txt."""
+    """Find immediate sub-folders that hold training log files."""
     results: List[dict] = []
     for folder in sorted(Path(root).iterdir()):
         if not folder.is_dir():
             continue
-        csvs = list(folder.glob("*.csv"))
-        eval_files = [p for p in folder.iterdir() if p.is_file() and p.name.lower() == "eval.txt"]
-        feedback_files = [p for p in folder.iterdir() if p.is_file() and p.name.lower() == "feedback.txt"]
-        if not csvs and not eval_files and not feedback_files:
+        source = _result_logs_source(folder)
+        files = [p for p in source.rglob("*") if p.is_file()]
+        if not files:
             continue
+        csvs = [p for p in files if p.suffix.lower() == ".csv"]
+        eval_files = [p for p in files if p.name.lower() == "eval.txt"]
+        feedback_files = [p for p in files if p.name.lower() == "feedback.txt"]
         results.append({
             "name": folder.name,
             "path": folder,
+            "file_count": len(files),
             "csv_count": len(csvs),
             "has_eval": bool(eval_files),
             "has_feedback": bool(feedback_files),
@@ -275,16 +283,19 @@ def scan_result_folders(root: Path) -> List[dict]:
 
 
 def copy_result_into_candidate(result_folder: Path, candidate_folder: Path) -> List[str]:
-    """Copy *.csv, eval.txt, and feedback.txt into <candidate>/logs/."""
+    """Copy every file from a result logs folder into <candidate>/logs/."""
     logs_dir = Path(candidate_folder) / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     copied: List[str] = []
-    for item in sorted(Path(result_folder).iterdir()):
+    source = _result_logs_source(result_folder)
+    for item in sorted(source.rglob("*")):
         if not item.is_file():
             continue
-        if item.suffix.lower() == ".csv" or item.name.lower() in {"eval.txt", "feedback.txt"}:
-            shutil.copy2(item, logs_dir / item.name)
-            copied.append(item.name)
+        relative_path = item.relative_to(source)
+        target_path = logs_dir / relative_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, target_path)
+        copied.append(str(relative_path))
     return copied
 
 
@@ -940,9 +951,9 @@ class DashboardWindow(QtWidgets.QMainWindow):
         if not results:
             QtWidgets.QMessageBox.information(
                 self, "No results found",
-                "The selected folder has no sub-folders containing .csv logs or "
-                "eval.txt / feedback.txt files.\n\nExpected layout:\n  <selected folder>/\n    "
-                "<result_1>/  (csv logs + eval.txt + feedback.txt)\n    <result_2>/  ...")
+                "The selected folder has no sub-folders containing log files.\n\n"
+                "Expected layout:\n  <selected folder>/\n    "
+                "<result_1>/logs/  (any training output files)\n    <result_2>/logs/  ...")
             return
 
         pending = [n["candidate_id"] for n in self.data.get("nodes", [])
@@ -1251,7 +1262,7 @@ class SyncMatchDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         intro = QtWidgets.QLabel(
             "Assign each trained-result folder to the pending node it belongs to. "
-            "Logs, eval.txt, and feedback.txt will be copied into that node's logs folder, then synced.")
+            "All files from its logs folder will be copied into that node's logs folder, then synced.")
         intro.setWordWrap(True)
         intro.setStyleSheet("color: #475569; font-size: 12px;")
         layout.addWidget(intro)
@@ -1272,7 +1283,7 @@ class SyncMatchDialog(QtWidgets.QDialog):
             if result.get("has_feedback"):
                 extras.append("feedback.txt")
             extra_text = ", " + ", ".join(extras) if extras else ""
-            detail = f"{result['name']}   ({result['csv_count']} csv{extra_text})"
+            detail = f"{result['name']}   ({result['file_count']} files, {result['csv_count']} csv{extra_text})"
             item = QtWidgets.QTableWidgetItem(detail)
             item.setToolTip(str(result["path"]))
             table.setItem(row, 0, item)

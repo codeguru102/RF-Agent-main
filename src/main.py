@@ -104,7 +104,7 @@ def main(args=None):
 
     if action == "sync":
         synced = sync_candidate_summaries(store, tree.log_reader)
-        print(f"Synced candidates from CSV logs: {len(synced)}")
+        print(f"Synced candidates from log files: {len(synced)}")
         for candidate_id in synced:
             print(f"- {candidate_id}")
         refreshed = CandidateStore(Path(args.task_dir) / "candidates").scan()
@@ -194,12 +194,25 @@ def export_best_reward(task_dir: Path, tree: SearchTree):
 def sync_candidate_summaries(store: CandidateStore, log_reader: OfflineLogReader):
     synced = []
     for candidate in store.scan():
-        if candidate.summary is not None or candidate.is_failed:
+        if candidate.is_failed or candidate.is_trained:
             continue
 
-        summary = log_reader.summary_from_csv_logs(candidate.folder)
-        if not summary:
+        log_files = candidate_log_files(candidate.folder)
+        if not log_files:
             continue
+
+        summary = candidate.summary or log_reader.summary_from_csv_logs(candidate.folder)
+        if not summary:
+            summary = {
+                "status": "trained",
+                "log_files": [str(path) for path in log_files],
+                "metrics": {},
+            }
+        else:
+            summary = dict(summary)
+            summary["status"] = "trained"
+            summary.setdefault("log_files", [str(path) for path in log_files])
+            summary.setdefault("metrics", {})
 
         save_json(candidate.folder / "summary.json", summary)
 
@@ -215,6 +228,17 @@ def sync_candidate_summaries(store: CandidateStore, log_reader: OfflineLogReader
 
         synced.append(candidate.candidate_id)
     return synced
+
+
+def candidate_log_files(candidate_folder: Path):
+    logs_dir = Path(candidate_folder) / "logs"
+    if not logs_dir.is_dir():
+        return []
+    return sorted(
+        path.relative_to(logs_dir)
+        for path in logs_dir.rglob("*")
+        if path.is_file()
+    )
 
 
 def run_cli() -> int:
