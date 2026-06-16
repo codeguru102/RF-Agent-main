@@ -322,7 +322,7 @@ def _messages_with_manual_feedback(candidate):
             "Current reward function to update:",
             candidate.reward_code,
             "",
-            "Regenerate this reward function in place. Preserve the configured signature and output contract.",
+            "As mentioned above, they say the reward function is not suitable for trainng. so regenerate this reward function resolving the feedback but reserve the configured signature and output contract.",
             "Return exactly one JSON object with design_thought and reward_code.",
         ]
     )
