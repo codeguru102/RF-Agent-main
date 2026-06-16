@@ -142,13 +142,14 @@ def render_dashboard(
     elite_display_nodes = tree.elite_nodes(elite_display_limit)
     elite_ids = {node.candidate_id for node in elite_display_nodes}
     pending_ids = {node.candidate_id for node in tree.pending_nodes()}
+    trainable_pending_ids = {node.candidate_id for node in tree.pending_nodes() if node.candidate and node.candidate.good_to_train}
     best = tree.best_node()
     if best_node_id is None:
         best_node_id = best.candidate_id if best else None
     c_param = compute_current_c_param(tree, agent_config)
 
     nodes_json = [
-        node_to_dict(node, tree, c_param, elite_ids, selected_update_ids, latest_training_ids, pending_ids, best_node_id)
+        node_to_dict(node, tree, c_param, elite_ids, selected_update_ids, latest_training_ids, trainable_pending_ids, best_node_id)
         for node in sorted(tree.nodes.values(), key=lambda item: (item.depth, item.candidate_id))
     ]
     edges_json = [
@@ -185,7 +186,7 @@ def render_dashboard(
         selected_update_ids=selected_update_ids,
         latest_training_ids=latest_training_ids,
         elite_ids=elite_ids,
-        pending_ids=pending_ids,
+        pending_ids=trainable_pending_ids,
         best_node_id=best_node_id,
         show_window=False,
     )
@@ -323,6 +324,7 @@ def draw_header_panel(fig, task_name: str, stats: dict):
         f"Nodes {stats['total']}",
         f"Trained {stats['trained']}",
         f"Pending {stats['pending']}",
+        f"Good {stats.get('good_to_train', 0)}",
         f"c = {stats['c_param']:.3f}",
     ]
     if stats["best_score"] is not None:
@@ -523,6 +525,7 @@ def dashboard_stats(tree: SearchTree, c_param: float, best_node_id: Optional[str
         "total": len(tree.nodes),
         "trained": len(tree.trained_nodes()),
         "pending": len(tree.pending_nodes()),
+        "good_to_train": sum(1 for node in tree.pending_nodes() if node.candidate and node.candidate.good_to_train),
         "c_param": c_param,
         "best_score": best_score,
         "best_node_id": best_node_id or (best.candidate_id if best else None),
@@ -652,6 +655,7 @@ def node_to_dict(
         "candidate_id": node.candidate_id,
         "parent_id": node.parent_id,
         "status": status,
+        "good_to_train": bool(node.candidate.good_to_train) if node.candidate else None,
         "action_type": node.action_type,
         "action_index": node.action_index,
         "depth": node.depth,
@@ -807,12 +811,13 @@ def draw_node(
         color=THEME["text_muted"],
     )
     if not style.compact and node.candidate_id != "root":
+        good_text = "T" if node.candidate and node.candidate.good_to_train else "F"
         add_node_text(
             ax,
             box,
             x + style.pad_x + 6,
             y + 14 + style.line_step * 4,
-            ellipsize(f"verify {node.self_verify_score:.2f}", style.text_limit),
+            ellipsize(f"verify {node.self_verify_score:.2f}   train {good_text}", style.text_limit),
             fontsize=style.body_font - 0.5,
             color=THEME["text_muted"],
         )
@@ -824,6 +829,8 @@ def draw_node(
         badges.append(("ELITE", THEME["highlight"]["elite"], "#ffffff"))
     if node.candidate_id in pending_ids:
         badges.append(("TRAIN", "#fbbf24", "#78350f"))
+    elif node.candidate and node.candidate.is_pending and not node.candidate.good_to_train:
+        badges.append(("NO", "#94a3b8", "#ffffff"))
     if node.candidate_id in latest_training_ids:
         badges.append(("NEW", "#a78bfa", "#ffffff"))
 

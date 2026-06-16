@@ -27,7 +27,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
         for index, decision in enumerate(latest_decisions)
         if decision.get("candidate_id")
     }
-    pending = tree.pending_nodes()
+    pending = [node for node in tree.pending_nodes() if node.candidate and node.candidate.good_to_train]
     incomplete = [
         node for node in tree.nodes.values()
         if node is not tree.root
@@ -53,6 +53,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "action_index": node.action_index,
                 "parent_id": node.parent_id,
                 "status": node.candidate.status.get("status", "unknown"),
+                "good_to_train": node.candidate.good_to_train,
                 "score": node.q_leaf_value,
                 "uct_score": None,
                 "reward_file": str(node.candidate.folder / _reward_file_name(node.candidate.metadata)),
@@ -79,6 +80,7 @@ def training_recommendations(tree: SearchTree, latest_decisions: Optional[List[d
                 "action_index": node.action_index,
                 "parent_id": node.parent_id,
                 "status": node.candidate.status.get("status", "unknown"),
+                "good_to_train": node.candidate.good_to_train,
                 "score": node.q_leaf_value,
                 "uct_score": None,
                 "reward_file": str(node.candidate.folder / _reward_file_name(node.candidate.metadata)),

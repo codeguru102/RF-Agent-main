@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--dry-run", action="store_true", help="Generate placeholder rewards without calling an LLM.")
     parser.add_argument("--debug", action="store_true", help="Show full Python tracebacks on failure.")
     # Internal actions triggered by the dashboard Sync / Generate buttons. Not for manual use.
-    parser.add_argument("--internal-action", dest="internal_action", choices=["sync", "generate"],
+    parser.add_argument("--internal-action", dest="internal_action", choices=["sync", "generate", "update-bad"],
                         default=None, help=argparse.SUPPRESS)
     return parser.parse_args()
 
@@ -125,6 +125,23 @@ def main(args=None):
             print(f"- {candidate_id}")
         render_and_print(args, task_config, agent_config, store, agent.tree,
                          agent.last_generation_decisions, show_window=False)
+        return
+
+    if action == "update-bad":
+        updated = update_bad_pending_rewards(agent, store)
+        print("Updated bad candidates:")
+        for candidate_id in updated:
+            print(f"- {candidate_id}")
+        refreshed = CandidateStore(Path(args.task_dir) / "candidates").scan()
+        tree = SearchTree(
+            refreshed,
+            tree.log_reader,
+            float(agent_config.get("dummy_failure", -10000.0)),
+            max_simulations=int(agent_config.get("simulations", 80)),
+        )
+        latest_path = store.root / "latest_generation.json"
+        latest_decisions = load_json(latest_path) if latest_path.exists() else []
+        render_and_print(args, task_config, agent_config, store, tree, latest_decisions, show_window=False)
         return
 
     # Default: open the interactive dashboard window directly.
@@ -228,6 +245,108 @@ def sync_candidate_summaries(store: CandidateStore, log_reader: OfflineLogReader
 
         synced.append(candidate.candidate_id)
     return synced
+
+
+def update_bad_pending_rewards(agent: OfflineRFAgent, store: CandidateStore):
+    updated = []
+    candidates = [
+        candidate
+        for candidate in store.scan()
+        if candidate.is_pending and not candidate.good_to_train
+    ]
+    total = len(candidates)
+    print(f"PROGRESS total={total} step=0 from=manual_review model={agent.agent_config.get('model', 'unknown')}", flush=True)
+
+    for index, candidate in enumerate(candidates, start=1):
+        print(
+            f"PROGRESS total={total} step={index - 1} from={candidate.candidate_id} "
+            f"action=update_bad[0] model={agent.agent_config.get('model', 'unknown')} phase=generating",
+            flush=True,
+        )
+        messages = _messages_with_manual_feedback(candidate)
+        design_thought, reward_code, response, validation_attempts = agent._generate_valid_reward(messages)
+        self_verify_score = 0.0
+        if agent.enable_self_verify and not agent.llm_client.dry_run:
+            self_verify_score = agent._self_verify_reward(design_thought, reward_code)
+
+        reward_file = candidate.folder / candidate.metadata.get("reward_file", "reward_fcn.py")
+        reward_file.write_text(reward_code.rstrip() + "\n", encoding="utf-8")
+        (candidate.folder / "description.txt").write_text(design_thought.rstrip() + "\n", encoding="utf-8")
+        save_json(candidate.folder / "prompt_messages.json", messages)
+
+        metadata = dict(candidate.metadata)
+        metadata.update(
+            {
+                "design_thought": design_thought,
+                "status": "pending",
+                "good_to_train": False,
+                "manual_update_from": candidate.candidate_id,
+                "manual_update_at": utc_now(),
+                "self_verify_score": self_verify_score,
+                "validation_attempts": validation_attempts,
+                "raw_response": response,
+            }
+        )
+        save_json(candidate.folder / "metadata.json", metadata)
+
+        status = dict(candidate.status)
+        status.update(
+            {
+                "status": "pending",
+                "good_to_train": False,
+                "updated_at": utc_now(),
+                "error_message": "",
+            }
+        )
+        save_json(candidate.folder / "status.json", status)
+        updated.append(candidate.candidate_id)
+        print(f"PROGRESS total={total} step={index} id={candidate.candidate_id} action=update_bad[0]", flush=True)
+    return updated
+
+
+def _messages_with_manual_feedback(candidate):
+    prompt_path = candidate.folder / "prompt_messages.json"
+    messages = load_json(prompt_path) if prompt_path.exists() else []
+    messages = [dict(message) for message in messages if isinstance(message, dict)]
+    feedback = _manual_feedback_text(candidate.folder)
+    if not feedback:
+        feedback = (
+            "The current reward is marked good_to_train=false by manual review. "
+            "Regenerate a better reward using the same task context, correcting likely weaknesses."
+        )
+    update_text = "\n".join(
+        [
+            "Manual review feedback for the current generated reward:",
+            feedback,
+            "",
+            "Current reward function to update:",
+            candidate.reward_code,
+            "",
+            "Regenerate this reward function in place. Preserve the configured signature and output contract.",
+            "Return exactly one JSON object with design_thought and reward_code.",
+        ]
+    )
+    if messages and messages[-1].get("role") == "user":
+        messages[-1] = {
+            **messages[-1],
+            "content": str(messages[-1].get("content", "")) + "\n\n" + update_text,
+        }
+    else:
+        messages.append({"role": "user", "content": update_text})
+    return messages
+
+
+def _manual_feedback_text(candidate_folder: Path) -> str:
+    logs = Path(candidate_folder) / "logs"
+    names = ["llm_feedback.md", "codex_analysis.txt", "feedback.txt"]
+    parts = []
+    for name in names:
+        path = logs / name
+        if path.exists():
+            text = path.read_text(encoding="utf-8").strip()
+            if text:
+                parts.append(f"## {name}\n{text}")
+    return "\n\n".join(parts)
 
 
 def candidate_log_files(candidate_folder: Path):

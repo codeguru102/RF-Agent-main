@@ -43,6 +43,15 @@ class Candidate:
         return self.status.get("status") == "pending"
 
     @property
+    def good_to_train(self):
+        value = self.status.get("good_to_train", self.metadata.get("good_to_train", False))
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "t"}
+        return bool(value)
+
+    @property
     def is_failed(self):
         return self.status.get("status") == "failed"
 
@@ -135,6 +144,7 @@ class CandidateStore:
             metadata.update(extra_metadata)
         status = {
             "status": "pending",
+            "good_to_train": False,
             "updated_at": utc_now(),
             "error_message": "",
         }

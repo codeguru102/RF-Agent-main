@@ -135,6 +135,14 @@ def _fmt(value) -> str:
     return f"{number:.3f}"
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "t"}
+    return bool(value)
+
+
 def _action(action_type, action_index) -> str:
     labels = {
         "initialize": "init",
@@ -208,6 +216,16 @@ def _scan_candidate_folders(candidates_dir: Path) -> Dict[str, Path]:
             continue
         mapping[meta.get("candidate_id", folder.name)] = folder
     return mapping
+
+
+def _read_candidate_status(folder: Path) -> dict:
+    status_path = Path(folder) / "status.json"
+    if not status_path.exists():
+        return {}
+    try:
+        return json.loads(status_path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
 
 
 def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[str], List[str]]:
@@ -391,6 +409,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
         rows = [
             f"<b>{n['candidate_id']}</b>",
             f"status: {n.get('status', 'unknown')}",
+            f"good_to_train: {_as_bool(n.get('good_to_train'))}",
             f"action: {_action(n.get('action_type'), n.get('action_index'))}",
             f"reward: {_fmt(n.get('score'))}",
             f"q value: {_fmt(n.get('q_value'))}",
@@ -481,8 +500,9 @@ class NodeCard(QtWidgets.QGraphicsItem):
             font.setPointSizeF(8.5)
             font.setBold(False)
             painter.setFont(font)
+            train_flag = "T" if _as_bool(n.get("good_to_train")) else "F"
             painter.drawText(QtCore.QRectF(text_left, 90, NODE_W - text_left - 12, 16),
-                             QtCore.Qt.AlignVCenter, f"verify {_fmt(n.get('self_verify_score'))}")
+                             QtCore.Qt.AlignVCenter, f"verify {_fmt(n.get('self_verify_score'))}   train {train_flag}")
 
         # badges
         badges = []
@@ -493,6 +513,8 @@ class NodeCard(QtWidgets.QGraphicsItem):
             badges.append(("ELITE", HIGHLIGHT["elite"]))
         if n.get("selected_for_training"):
             badges.append(("TRAIN", "#d97706"))
+        elif n.get("status") in ("pending", "running") and not _as_bool(n.get("good_to_train")):
+            badges.append(("NO TRAIN", "#64748b"))
         if n.get("new_training_candidate"):
             badges.append(("NEW", HIGHLIGHT["new"]))
         bx = NODE_W - 12
@@ -501,7 +523,7 @@ class NodeCard(QtWidgets.QGraphicsItem):
         font.setBold(True)
         painter.setFont(font)
         for label, color in badges[:3]:
-            w = 44
+            w = 58 if len(label) > 5 else 44
             badge_rect = QtCore.QRectF(bx - w, by, w, 15)
             painter.setPen(QtCore.Qt.NoPen)
             painter.setBrush(QtGui.QColor(color))
@@ -679,15 +701,28 @@ class DashboardWindow(QtWidgets.QMainWindow):
         nodes = data.get("nodes", [])
         trained = sum(1 for n in nodes if n.get("status") == "trained")
         pending = sum(1 for n in nodes if n.get("status") in ("pending", "running"))
+        good = sum(1 for n in nodes if n.get("status") in ("pending", "running") and _as_bool(n.get("good_to_train")))
         best = next((n for n in nodes if n.get("is_best")), None)
         chips = [("Nodes", str(len(nodes))), ("Trained", str(trained)),
-                 ("Pending", str(pending)), ("c", f"{float(data.get('c_param', 0)):.3f}")]
+                 ("Pending", str(pending)), ("Good", str(good)), ("c", f"{float(data.get('c_param', 0)):.3f}")]
         if best is not None:
             chips.append(("Best R", _fmt(best.get("score"))))
         for label, value in chips:
             h.addWidget(self._chip(label, value))
 
         h.addSpacing(12)
+        load_btn = QtWidgets.QPushButton("Load statuses")
+        load_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        load_btn.setFixedHeight(32)
+        load_btn.setMinimumWidth(126)
+        load_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #0f766e; border: 1px solid #115e59;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 12px; }"
+            "QPushButton:hover { background: #0d9488; }")
+        load_btn.clicked.connect(self._load_statuses_from_disk)
+        h.addWidget(load_btn)
+
+        h.addSpacing(8)
         generate_btn = QtWidgets.QPushButton("✦  Generate candidates")
         generate_btn.setCursor(QtCore.Qt.PointingHandCursor)
         generate_btn.setFixedHeight(32)
@@ -698,6 +733,18 @@ class DashboardWindow(QtWidgets.QMainWindow):
             "QPushButton:hover { background: #3b82f6; }")
         generate_btn.clicked.connect(self._open_generate)
         h.addWidget(generate_btn)
+
+        h.addSpacing(8)
+        update_btn = QtWidgets.QPushButton("Update bad rewards")
+        update_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        update_btn.setFixedHeight(32)
+        update_btn.setMinimumWidth(154)
+        update_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #be123c; border: 1px solid #9f1239;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 12px; }"
+            "QPushButton:hover { background: #e11d48; }")
+        update_btn.clicked.connect(self._open_update_bad)
+        h.addWidget(update_btn)
 
         h.addSpacing(8)
         sync_btn = QtWidgets.QPushButton("⟳  Sync trained results")
@@ -894,6 +941,40 @@ class DashboardWindow(QtWidgets.QMainWindow):
         dialog = open_node_comparison(nodes, folders, parent=self)
         self._compare_dialogs.append(dialog)
 
+    # -- manual review status reload ------------------------------------------
+    def _load_statuses_from_disk(self):
+        if not self.candidates_dir:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Load unavailable",
+                "Candidate folder not found for this task, so status.json files cannot be loaded.",
+            )
+            return
+        folders = _scan_candidate_folders(self.candidates_dir)
+        updated = 0
+        for node in self.data.get("nodes", []):
+            cid = node.get("candidate_id")
+            folder = folders.get(cid)
+            if folder is None:
+                continue
+            status = _read_candidate_status(folder)
+            if not status:
+                continue
+            node["status"] = status.get("status", node.get("status", "unknown"))
+            node["good_to_train"] = _as_bool(status.get("good_to_train", False))
+            node["selected_for_training"] = (
+                node.get("status") in ("pending", "running")
+                and _as_bool(node.get("good_to_train"))
+            )
+            updated += 1
+        self._persist_tree_json()
+        self._refresh_view()
+        QtWidgets.QMessageBox.information(
+            self,
+            "Statuses loaded",
+            f"Loaded status.json for {updated} candidate node(s).",
+        )
+
     # -- node metrics (double-click) -------------------------------------------
     def _open_node_metrics(self, node_id: str):
         if node_id == "root":
@@ -957,10 +1038,10 @@ class DashboardWindow(QtWidgets.QMainWindow):
             return
 
         pending = [n["candidate_id"] for n in self.data.get("nodes", [])
-                   if n.get("status") in ("pending", "running")]
+                   if n.get("status") in ("pending", "running") and _as_bool(n.get("good_to_train"))]
         if not pending:
             QtWidgets.QMessageBox.information(
-                self, "Nothing to sync", "There are no pending nodes to match.")
+                self, "Nothing to sync", "There are no pending nodes marked good_to_train=true.")
             return
 
         dialog = SyncMatchDialog(results, pending, self)
@@ -1013,6 +1094,42 @@ class DashboardWindow(QtWidgets.QMainWindow):
             action="generate",
             busy_text=f"Generating using {model_label} (from agent.json)",
             title="Generate",
+            extra_report=None,
+        )
+
+    def _open_update_bad(self):
+        if not self.candidates_dir:
+            QtWidgets.QMessageBox.warning(
+                self, "Update unavailable",
+                "Candidate folder not found for this view, so rewards cannot be updated.")
+            return
+        bad = [
+            n["candidate_id"]
+            for n in self.data.get("nodes", [])
+            if n.get("status") in ("pending", "running") and not _as_bool(n.get("good_to_train"))
+        ]
+        if not bad:
+            QtWidgets.QMessageBox.information(
+                self, "Nothing to update", "No pending candidates are marked good_to_train=false.")
+            return
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Update bad rewards")
+        box.setIcon(QtWidgets.QMessageBox.Question)
+        box.setText(
+            "Regenerate reward functions in place for pending candidates marked "
+            f"good_to_train=false?\n\nCandidates: {', '.join(bad)}\n\n"
+            "This calls the LLM using each candidate's previous prompt plus manual feedback "
+            "from logs/llm_feedback.md, logs/codex_analysis.txt, or logs/feedback.txt.")
+        box.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
+        box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
+        if box.exec_() != QtWidgets.QMessageBox.Yes:
+            return
+        package_root = Path(__file__).resolve().parent.parent
+        model_label = _format_model_label(_load_agent_model(package_root))
+        self._run_engine_action(
+            action="update-bad",
+            busy_text=f"Updating bad rewards using {model_label}",
+            title="Update bad rewards",
             extra_report=None,
         )
 
@@ -1102,7 +1219,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
             return
         busy.setMaximum(total)
         busy.setValue(step if tokens.get("phase") != "generating" else max(step, 0))
-        if action == "generate":
+        if action in {"generate", "update-bad"}:
             busy.setLabelText(_generation_progress_label(tokens, fallback_model))
             return
         cid = tokens.get("id")
@@ -1113,7 +1230,12 @@ class DashboardWindow(QtWidgets.QMainWindow):
             busy.setLabelText(f"{busy_text}\n\nGenerated {step} / {total}")
 
     def _show_action_result(self, title, action, output, extra_report):
-        prefix = "Synced candidates" if action == "sync" else "Created pending candidates"
+        if action == "sync":
+            prefix = "Synced candidates"
+        elif action == "update-bad":
+            prefix = "Updated bad candidates"
+        else:
+            prefix = "Created pending candidates"
         summary_line = next((ln for ln in (output or "").splitlines()
                              if ln.startswith(prefix)), f"{title} complete.")
         message = summary_line
