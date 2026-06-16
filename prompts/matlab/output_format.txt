@@ -8,7 +8,7 @@ Briefly explain what was wrong with the previous reward function and what behavi
 Briefly explain what the new reward function improves and why the changes should work better.
 
 ### 3. Reward Terms
-For each reward term, list: Name, Formula / expression, Coefficient, Status (Added, Modified, Removed, or Unchanged), and a short purpose.
+For each reward term, list: Name, Formula / expression, Expected range before weighting, Coefficient, Weighted range, Status (Added, Modified, Removed, or Unchanged), and a short purpose.
 
 ### 4. Combined Effect
 Briefly explain how the terms work together and what behavior the overall reward is expected to encourage.
@@ -19,6 +19,8 @@ State that the complete implementation is provided in reward_code.
 Keep each section concise: use 1-3 sentences per section, except Reward Terms may use a compact bullet list or table.
 Focus on actionable reasoning, not lengthy analysis.
 Next, write a complete MATLAB reward function based on this design.
+In the reward_code, add concise comments for every reward component that state its expected raw range and weighted range.
+Also add a concise comment beside the final combined reward calculation that states the expected total reward range.
 
 Output exactly one JSON object:
 {
@@ -29,5 +31,6 @@ Output exactly one JSON object:
 The MATLAB code must define reward_fcn and must be self-contained.
 Do not change the configured input/output signature.
 Do not call unavailable project-specific helpers.
+Every component returned for logging must have a nearby comment describing its expected range.
 Do not give additional explanations outside the JSON object.
 The generated candidate will be saved as reward_fcn.m.

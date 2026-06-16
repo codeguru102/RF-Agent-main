@@ -5,6 +5,8 @@ Some helpful tips for writing the reward function code:
     (4) Make sure every input variable is used consistently with its configured meaning and units.
     (5) Make sure you do not give contradictory reward components.
     (6) Most importantly, the reward code's input variables must contain only the variables listed in the task description.
+    (7) Add concise comments in the reward code documenting the expected raw range and weighted range of each reward component, and the expected range of the final combined reward.
 
 Return a JSON object with keys "design_thought" and "reward_code".
 The design_thought value must use the required five-section Markdown format: Weaknesses of Previous Reward Function, Improvements, Reward Terms, Combined Effect, and Final Reward Function.
+In the design_thought Reward Terms section, include expected raw range and weighted range for every term.

@@ -5,9 +5,10 @@ It met a validation or execution error:
 {traceback_msg}
 
 Please fix the bug and provide a reward function that compiles and matches the configured task signature.
-First, provide the structured design_thought with the required five sections: Weaknesses of Previous Reward Function, Improvements, Reward Terms, Combined Effect, and Final Reward Function.
+First, provide the structured design_thought with the required five sections: Weaknesses of Previous Reward Function, Improvements, Reward Terms, Combined Effect, and Final Reward Function. In Reward Terms, include expected raw range and weighted range for every term.
 Next, write the corrected reward function code.
 
 Return exactly one JSON object with keys "design_thought" and "reward_code".
 The reward_code value must contain the complete Python function with the configured reward signature.
+The reward_code must include concise comments describing each component's expected raw range, weighted range, and the expected total reward range.
 Do not give additional explanations outside the JSON object.
