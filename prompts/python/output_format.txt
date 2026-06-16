@@ -1,9 +1,28 @@
-First, describe the design idea and main steps of your reward function in one concise sentence.
-Next, write a complete Python reward function based on this idea.
+First, write a concise but detailed design thought for the new reward function.
+The design_thought value must be Markdown text with these exact sections:
+
+### 1. Weaknesses of Previous Reward Function
+Briefly explain what was wrong with the previous reward function and what behavior it failed to encourage or discourage.
+
+### 2. Improvements
+Briefly explain what the new reward function improves and why the changes should work better.
+
+### 3. Reward Terms
+For each reward term, list: Name, Formula / expression, Coefficient, Status (Added, Modified, Removed, or Unchanged), and a short purpose.
+
+### 4. Combined Effect
+Briefly explain how the terms work together and what behavior the overall reward is expected to encourage.
+
+### 5. Final Reward Function
+State that the complete implementation is provided in reward_code.
+
+Keep each section concise: use 1-3 sentences per section, except Reward Terms may use a compact bullet list or table.
+Focus on actionable reasoning, not lengthy analysis.
+Next, write a complete Python reward function based on this design.
 
 Output exactly one JSON object:
 {
-  "design_thought": "one concise sentence describing the reward design and main steps",
+  "design_thought": "Markdown design note using the required five sections",
   "reward_code": "complete Python function code"
 }
 
