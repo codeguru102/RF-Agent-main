@@ -722,18 +722,6 @@ class DashboardWindow(QtWidgets.QMainWindow):
             h.addWidget(self._chip(label, value))
 
         h.addSpacing(12)
-        load_btn = QtWidgets.QPushButton("Load statuses")
-        load_btn.setCursor(QtCore.Qt.PointingHandCursor)
-        load_btn.setFixedHeight(32)
-        load_btn.setMinimumWidth(126)
-        load_btn.setStyleSheet(
-            "QPushButton { color: #ffffff; background: #0f766e; border: 1px solid #115e59;"
-            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 12px; }"
-            "QPushButton:hover { background: #0d9488; }")
-        load_btn.clicked.connect(self._load_statuses_from_disk)
-        h.addWidget(load_btn)
-
-        h.addSpacing(8)
         generate_btn = QtWidgets.QPushButton("✦  Generate candidates")
         generate_btn.setCursor(QtCore.Qt.PointingHandCursor)
         generate_btn.setFixedHeight(32)
