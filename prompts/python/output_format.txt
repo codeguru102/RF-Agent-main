@@ -31,6 +31,8 @@ Output exactly one JSON object:
 The Python code must define reward_fcn and must be self-contained.
 Do not change the configured input/output signature.
 Do not import unavailable project-specific helpers.
-Every component stored in reward_comp must have a nearby comment describing its expected range.
+The third returned value must be reward_comp or reward_components as a Python dict, not a list, tuple, NumPy array, or scalar.
+Use string component names as keys and numeric values as values, for example {"velocity_reward": float(velocity_reward)}.
+Every component stored in reward_comp or reward_components must have a nearby comment describing its expected range.
 Do not give additional explanations outside the JSON object.
 The generated candidate will be saved as reward_fcn.py.

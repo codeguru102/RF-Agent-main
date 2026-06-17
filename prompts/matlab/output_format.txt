@@ -31,6 +31,10 @@ Output exactly one JSON object:
 The MATLAB code must define reward_fcn and must be self-contained.
 Do not change the configured input/output signature.
 Do not call unavailable project-specific helpers.
+The component output returned for logging must be a numeric array.
+The reward_fcn function output component must be [reward, isdone, debug] style.
+Here debug contains reward components.
+Use valid field names with numeric values, for example reward_components.velocity_reward = double(velocity_reward).
 Every component returned for logging must have a nearby comment describing its expected range.
 Do not give additional explanations outside the JSON object.
 The generated candidate will be saved as reward_fcn.m.

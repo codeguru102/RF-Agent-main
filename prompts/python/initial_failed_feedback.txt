@@ -10,5 +10,6 @@ Next, write the corrected reward function code.
 
 Return exactly one JSON object with keys "design_thought" and "reward_code".
 The reward_code value must contain the complete Python function with the configured reward signature.
+The third returned value must be reward_comp or reward_components as a Python dict with string keys and numeric values; do not return a list, tuple, NumPy array, or scalar for components.
 The reward_code must include concise comments describing each component's expected raw range, weighted range, and the expected total reward range.
 Do not give additional explanations outside the JSON object.

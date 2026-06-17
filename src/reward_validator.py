@@ -52,6 +52,8 @@ def validate_python_reward_code(code: str, task_config: dict) -> RewardValidatio
             actual_args = [arg.arg for arg in reward_def.args.args]
             if actual_args != expected_args:
                 errors.append(f"Expected signature arguments {expected_args}, got {actual_args}.")
+        component_errors = _validate_python_reward_components(reward_def)
+        errors.extend(component_errors)
 
     forbidden_imports = [
         node for node in ast.walk(tree)
@@ -61,6 +63,94 @@ def validate_python_reward_code(code: str, task_config: dict) -> RewardValidatio
         errors.append("Reward code should be self-contained and not import modules unless task.json sets allow_imports=true.")
 
     return RewardValidationResult(not errors, errors)
+
+
+def _validate_python_reward_components(reward_def: ast.FunctionDef) -> List[str]:
+    """Require the third returned item to be a dict or a variable assigned from a dict."""
+    errors: List[str] = []
+    body_nodes = _python_reward_body_nodes(reward_def)
+    assignments = _python_name_assignments(body_nodes)
+
+    returns = [node for node in body_nodes if isinstance(node, ast.Return)]
+    if not returns:
+        return ["Reward function must return reward, done, reward_components."]
+
+    for return_node in returns:
+        value = return_node.value
+        if not isinstance(value, ast.Tuple) or len(value.elts) < 3:
+            errors.append("Reward function must return a tuple like (reward, done, reward_components).")
+            continue
+
+        component_expr = value.elts[2]
+        if _python_expr_is_dict_like(component_expr, assignments):
+            continue
+
+        errors.append(
+            "The third returned value must be reward_components as a Python dict "
+            "with string keys and numeric values, e.g. "
+            "reward_components = {'velocity_reward': float(velocity_reward)}."
+        )
+
+    return errors
+
+
+def _python_reward_body_nodes(reward_def: ast.FunctionDef) -> List[ast.AST]:
+    nodes: List[ast.AST] = []
+
+    class BodyVisitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node):
+            if node is reward_def:
+                self.generic_visit(node)
+
+        def visit_AsyncFunctionDef(self, node):
+            if node is reward_def:
+                self.generic_visit(node)
+
+        def visit_Lambda(self, node):
+            return
+
+        def generic_visit(self, node):
+            if node is not reward_def:
+                nodes.append(node)
+            super().generic_visit(node)
+
+    BodyVisitor().visit(reward_def)
+    return nodes
+
+
+def _python_name_assignments(nodes: List[ast.AST]) -> dict:
+    assignments = {}
+    for node in nodes:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    assignments.setdefault(target.id, []).append(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            assignments.setdefault(node.target.id, []).append(node.value)
+    return assignments
+
+
+def _python_expr_is_dict_like(expr: ast.AST, assignments: dict) -> bool:
+    if isinstance(expr, ast.Dict):
+        return _python_dict_has_string_keys(expr)
+
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "dict":
+        return True
+
+    if isinstance(expr, ast.Name):
+        values = assignments.get(expr.id, [])
+        return bool(values) and all(_python_expr_is_dict_like(value, assignments) for value in values)
+
+    return False
+
+
+def _python_dict_has_string_keys(expr: ast.Dict) -> bool:
+    for key in expr.keys:
+        if key is None:
+            continue
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return False
+    return True
 
 
 def validate_matlab_reward_code(code: str, task_config: dict) -> RewardValidationResult:
