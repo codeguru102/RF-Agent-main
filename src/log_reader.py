@@ -7,6 +7,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional
 
+TEXT_LOG_EXTENSIONS = {".txt", ".md"}
+
 
 class OfflineLogReader:
     def __init__(self, score_config: dict, dummy_failure: float = -10000.0, q_value_config: Optional[dict] = None):
@@ -75,6 +77,66 @@ class OfflineLogReader:
             return text[:max_chars].rstrip() + "\n[feedback.txt truncated]"
         return text
 
+    def read_text_log_files(
+        self,
+        candidate_folder: Path,
+        *,
+        max_chars_per_file: int = 6000,
+        max_total_chars: int = 24000,
+        exclude_names: Optional[set] = None,
+    ) -> Dict[str, str]:
+        logs_dir = Path(candidate_folder) / "logs"
+        if not logs_dir.exists():
+            return {}
+
+        exclude = {name.lower() for name in (exclude_names or set())}
+        texts: Dict[str, str] = {}
+        remaining = max_total_chars
+        for path in sorted(logs_dir.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in TEXT_LOG_EXTENSIONS:
+                continue
+            relative = str(path.relative_to(logs_dir))
+            if path.name.lower() in exclude or relative.lower() in exclude:
+                continue
+            if max_total_chars > 0 and remaining <= 0:
+                break
+
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+            if not text:
+                continue
+
+            limit = max_chars_per_file
+            if max_total_chars > 0:
+                limit = min(limit, remaining)
+            if limit > 0 and len(text) > limit:
+                text = text[:limit].rstrip() + f"\n[{relative} truncated]"
+            texts[relative] = text
+            if max_total_chars > 0:
+                remaining -= len(text)
+        return texts
+
+    def log_file_inventory(self, candidate_folder: Path) -> Dict[str, List[str]]:
+        logs_dir = Path(candidate_folder) / "logs"
+        inventory = {"text": [], "csv": [], "images": [], "other": []}
+        if not logs_dir.exists():
+            return inventory
+
+        image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+        for path in sorted(logs_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = str(path.relative_to(logs_dir))
+            suffix = path.suffix.lower()
+            if suffix in TEXT_LOG_EXTENSIONS:
+                inventory["text"].append(relative)
+            elif suffix == ".csv":
+                inventory["csv"].append(relative)
+            elif suffix in image_extensions:
+                inventory["images"].append(relative)
+            else:
+                inventory["other"].append(relative)
+        return inventory
+
     def summary_from_csv_logs(self, candidate_folder: Path) -> Dict[str, object]:
         csv_summaries = self.summarize_csv_logs(candidate_folder)
         if not csv_summaries:
@@ -124,9 +186,12 @@ class OfflineLogReader:
     def _summarize_csv(self, csv_path: Path) -> Dict[str, dict]:
         numeric_values: Dict[str, List[float]] = defaultdict(list)
         with csv_path.open("r", encoding="utf-8", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                for key, value in row.items():
+            reader = csv.reader(file)
+            fieldnames = next(reader, None)
+            if not fieldnames:
+                return {}
+            for values in reader:
+                for key, value in zip(fieldnames, values):
                     try:
                         numeric_values[key].append(float(value))
                     except (TypeError, ValueError):

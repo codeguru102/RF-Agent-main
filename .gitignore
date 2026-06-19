@@ -8,3 +8,4 @@ RF-Agent-Matlab/.env
 **/__pycache__/
 PROMPT_PIPELINE_COMPARISON.md
 .env
+LLM_Verifying/

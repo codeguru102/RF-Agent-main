@@ -263,7 +263,10 @@ def update_bad_pending_rewards(agent: OfflineRFAgent, store: CandidateStore):
             f"action=update_bad[0] model={agent.agent_config.get('model', 'unknown')} phase=generating",
             flush=True,
         )
-        messages = _messages_with_manual_feedback(candidate)
+        current_images = []
+        if agent.include_images:
+            current_images = [str(path) for path in agent._discover_images(candidate.folder)[: agent.max_images_per_request]]
+        messages = _messages_with_manual_feedback(candidate, agent.feedback_builder, current_images)
         design_thought, reward_code, response, validation_attempts = agent._generate_valid_reward(messages)
         self_verify_score = 0.0
         if agent.enable_self_verify and not agent.llm_client.dry_run:
@@ -304,11 +307,11 @@ def update_bad_pending_rewards(agent: OfflineRFAgent, store: CandidateStore):
     return updated
 
 
-def _messages_with_manual_feedback(candidate):
+def _messages_with_manual_feedback(candidate, feedback_builder: FeedbackBuilder, current_images=None):
     prompt_path = candidate.folder / "prompt_messages.json"
     messages = load_json(prompt_path) if prompt_path.exists() else []
     messages = [dict(message) for message in messages if isinstance(message, dict)]
-    feedback = _manual_feedback_text(candidate.folder)
+    feedback = _manual_feedback_text(candidate, feedback_builder)
     if not feedback:
         feedback = (
             "The current reward is marked good_to_train=false by manual review. "
@@ -322,31 +325,49 @@ def _messages_with_manual_feedback(candidate):
             "Current reward function to update:",
             candidate.reward_code,
             "",
-            "As mentioned above, they say the reward function is not suitable for trainng. so regenerate this reward function resolving the feedback but reserve the configured signature and output contract.",
+            "As mentioned above, the reward function is not suitable for training. Regenerate it by resolving the current logs-folder feedback, while preserving the configured signature and output contract.",
             "Return exactly one JSON object with design_thought and reward_code.",
         ]
     )
+    images = _merge_image_lists(current_images or [])
     if messages and messages[-1].get("role") == "user":
-        messages[-1] = {
+        updated_message = {
             **messages[-1],
             "content": str(messages[-1].get("content", "")) + "\n\n" + update_text,
         }
+        if images:
+            updated_message["images"] = images
+        else:
+            updated_message.pop("images", None)
+        messages[-1] = updated_message
     else:
-        messages.append({"role": "user", "content": update_text})
+        message = {"role": "user", "content": update_text}
+        if images:
+            message["images"] = images
+        messages.append(message)
     return messages
 
 
-def _manual_feedback_text(candidate_folder: Path) -> str:
-    logs = Path(candidate_folder) / "logs"
-    names = ["llm_feedback.md", "codex_analysis.txt", "feedback.txt"]
-    parts = []
-    for name in names:
-        path = logs / name
-        if path.exists():
-            text = path.read_text(encoding="utf-8").strip()
-            if text:
-                parts.append(f"## {name}\n{text}")
+def _manual_feedback_text(candidate, feedback_builder: FeedbackBuilder) -> str:
+    parts = [
+        "This candidate is still pending and has not been trained successfully.",
+        "Use the current files in its logs folder as manual review feedback and debugging evidence.",
+        feedback_builder.build(candidate),
+    ]
     return "\n\n".join(parts)
+
+
+def _merge_image_lists(*image_lists):
+    merged = []
+    seen = set()
+    for image_list in image_lists:
+        for image in image_list or []:
+            text = str(image).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            merged.append(text)
+    return merged
 
 
 def candidate_log_files(candidate_folder: Path):

@@ -487,18 +487,22 @@ class OfflineRFAgent:
     def _infer_csv_cadence_from_file(self, csv_path: Path) -> str:
         try:
             with csv_path.open("r", encoding="utf-8", newline="") as file:
-                reader = csv.DictReader(file)
-                if not reader.fieldnames:
+                reader = csv.reader(file)
+                fieldnames = next(reader, None)
+                if not fieldnames:
                     return ""
-                cadence_column = self._cadence_column(reader.fieldnames)
+                cadence_column = self._cadence_column(fieldnames)
                 if not cadence_column:
                     return ""
+                cadence_index = fieldnames.index(cadence_column)
                 values = []
                 for row_index, row in enumerate(reader):
                     if row_index >= 1000:
                         break
+                    if cadence_index >= len(row):
+                        continue
                     try:
-                        values.append(float(row.get(cadence_column, "")))
+                        values.append(float(row[cadence_index]))
                     except (TypeError, ValueError):
                         continue
         except OSError:

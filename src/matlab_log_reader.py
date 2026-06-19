@@ -124,9 +124,12 @@ class MatlabLogReader:
     def _summarize_csv(self, csv_path: Path) -> Dict[str, dict]:
         numeric_values: Dict[str, List[float]] = defaultdict(list)
         with csv_path.open("r", encoding="utf-8", newline="") as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                for key, value in row.items():
+            reader = csv.reader(file)
+            fieldnames = next(reader, None)
+            if not fieldnames:
+                return {}
+            for values in reader:
+                for key, value in zip(fieldnames, values):
                     try:
                         numeric_values[key].append(float(value))
                     except (TypeError, ValueError):
