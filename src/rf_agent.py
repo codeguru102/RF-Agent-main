@@ -51,7 +51,7 @@ class OfflineRFAgent:
         self.tree = tree
         self.feedback_builder = feedback_builder
         self.llm_client = llm_client
-        self.max_try_num = int(agent_config.get("max_try_num", 9))
+        self.max_try_num = int(agent_config.get("max_try_num", 1))
         self.max_same_try_cnt = int(agent_config.get("max_same_try_cnt", 3))
         self.enable_self_verify = bool(agent_config.get("enable_self_verify", True))
         self.include_images = bool(agent_config.get("include_images", True))

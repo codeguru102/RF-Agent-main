@@ -81,8 +81,8 @@ class OfflineLogReader:
         self,
         candidate_folder: Path,
         *,
-        max_chars_per_file: int = 6000,
-        max_total_chars: int = 24000,
+        max_chars_per_file: int = 4000,
+        max_total_chars: int = 12000,
         exclude_names: Optional[set] = None,
     ) -> Dict[str, str]:
         logs_dir = Path(candidate_folder) / "logs"

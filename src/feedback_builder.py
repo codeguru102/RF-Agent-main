@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from candidate_store import Candidate
 from log_reader import OfflineLogReader
 
@@ -17,7 +19,9 @@ class FeedbackBuilder:
         if candidate.summary:
             parts.append("summary:")
             for key, value in sorted(candidate.summary.items()):
-                parts.append(f"- {key}: {value}")
+                formatted = _format_summary_value(key, value)
+                if formatted:
+                    parts.append(f"- {key}: {formatted}")
 
         fallback_score = self.log_reader.score_summary(candidate.summary)
         score = self.log_reader.q_value_for_candidate(candidate.folder, fallback_score)
@@ -43,7 +47,8 @@ class FeedbackBuilder:
                 parts.append(f"--- logs/{filename} ---")
                 parts.append(text)
 
-        csv_summaries = self.log_reader.summarize_csv_logs(candidate.folder)
+        has_summary_metrics = isinstance(candidate.summary.get("metrics") if candidate.summary else None, dict)
+        csv_summaries = {} if has_summary_metrics else self.log_reader.summarize_csv_logs(candidate.folder)
         if csv_summaries:
             parts.append("csv log summaries:")
             for filename, metrics in csv_summaries.items():
@@ -59,3 +64,48 @@ class FeedbackBuilder:
             parts.append(f"error_message: {candidate.status['error_message']}")
 
         return "\n".join(parts)
+
+
+def _format_summary_value(key: str, value: Any) -> str:
+    """Keep nested metric summaries compact enough for LLM prompts."""
+    if value is None:
+        return ""
+
+    if key == "metrics" and isinstance(value, dict):
+        lines = []
+        for metric_name, stats in sorted(value.items()):
+            if not isinstance(stats, dict):
+                lines.append(f"{metric_name}={stats}")
+                continue
+            fields = []
+            for field in ("max", "mean", "min", "last"):
+                if field in stats:
+                    fields.append(f"{field}={_format_scalar(stats[field])}")
+            lines.append(f"{metric_name}({', '.join(fields)})" if fields else str(metric_name))
+        return "; ".join(lines)
+
+    if isinstance(value, dict):
+        items = []
+        for item_key, item_value in sorted(value.items()):
+            if isinstance(item_value, (dict, list, tuple)):
+                items.append(f"{item_key}=<{type(item_value).__name__}>")
+            else:
+                items.append(f"{item_key}={_format_scalar(item_value)}")
+            if len(items) >= 12:
+                items.append("...")
+                break
+        return ", ".join(items)
+
+    if isinstance(value, (list, tuple)):
+        shown = ", ".join(str(item) for item in value[:12])
+        if len(value) > 12:
+            shown += ", ..."
+        return shown
+
+    return _format_scalar(value)
+
+
+def _format_scalar(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    return str(value)

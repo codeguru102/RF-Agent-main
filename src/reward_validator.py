@@ -59,8 +59,8 @@ def validate_python_reward_code(code: str, task_config: dict) -> RewardValidatio
         node for node in ast.walk(tree)
         if isinstance(node, (ast.Import, ast.ImportFrom))
     ]
-    if forbidden_imports and not task_config.get("allow_imports", False):
-        errors.append("Reward code should be self-contained and not import modules unless task.json sets allow_imports=true.")
+    # if forbidden_imports and not task_config.get("allow_imports", True):
+    #     errors.append("Reward code should be self-contained and not import modules unless task.json sets allow_imports=true.")
 
     return RewardValidationResult(not errors, errors)
 

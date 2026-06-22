@@ -229,6 +229,11 @@ def _read_candidate_status(folder: Path) -> dict:
         return {}
 
 
+def _write_candidate_status(folder: Path, status: dict) -> None:
+    status_path = Path(folder) / "status.json"
+    status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
+
+
 def remove_node_persist(candidates_dir: Path, node_id: str) -> Tuple[Optional[str], List[str]]:
     """Re-parent children to the removed node's parent and archive its folder.
 
@@ -746,6 +751,18 @@ class DashboardWindow(QtWidgets.QMainWindow):
         h.addWidget(update_btn)
 
         h.addSpacing(8)
+        status_btn = QtWidgets.QPushButton("Update status")
+        status_btn.setCursor(QtCore.Qt.PointingHandCursor)
+        status_btn.setFixedHeight(32)
+        status_btn.setMinimumWidth(124)
+        status_btn.setStyleSheet(
+            "QPushButton { color: #ffffff; background: #0f766e; border: 1px solid #115e59;"
+            "border-radius: 8px; font-size: 13px; font-weight: 600; padding: 0 12px; }"
+            "QPushButton:hover { background: #0d9488; }")
+        status_btn.clicked.connect(lambda _checked=False: self._load_statuses_from_disk(show_message=True))
+        h.addWidget(status_btn)
+
+        h.addSpacing(8)
         sync_btn = QtWidgets.QPushButton("⟳  Sync trained results")
         sync_btn.setCursor(QtCore.Qt.PointingHandCursor)
         sync_btn.setFixedHeight(32)
@@ -942,16 +959,18 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self._compare_dialogs.append(dialog)
 
     # -- manual review status reload ------------------------------------------
-    def _load_statuses_from_disk(self):
+    def _load_statuses_from_disk(self, show_message: bool = True):
         if not self.candidates_dir:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Load unavailable",
-                "Candidate folder not found for this task, so status.json files cannot be loaded.",
-            )
+            if show_message:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Load unavailable",
+                    "Candidate folder not found for this task, so status.json files cannot be loaded.",
+                )
             return
         folders = _scan_candidate_folders(self.candidates_dir)
         updated = 0
+        changed_good = 0
         for node in self.data.get("nodes", []):
             cid = node.get("candidate_id")
             folder = folders.get(cid)
@@ -960,8 +979,11 @@ class DashboardWindow(QtWidgets.QMainWindow):
             status = _read_candidate_status(folder)
             if not status:
                 continue
+            disk_good = _as_bool(status.get("good_to_train", node.get("good_to_train", False)))
+            if _as_bool(node.get("good_to_train")) != disk_good:
+                changed_good += 1
             node["status"] = status.get("status", node.get("status", "unknown"))
-            node["good_to_train"] = _as_bool(status.get("good_to_train", False))
+            node["good_to_train"] = disk_good
             node["selected_for_training"] = (
                 node.get("status") in ("pending", "running")
                 and _as_bool(node.get("good_to_train"))
@@ -969,11 +991,13 @@ class DashboardWindow(QtWidgets.QMainWindow):
             updated += 1
         self._persist_tree_json()
         self._refresh_view()
-        QtWidgets.QMessageBox.information(
-            self,
-            "Statuses loaded",
-            f"Loaded status.json for {updated} candidate node(s).",
-        )
+        if show_message:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Statuses loaded",
+                f"Loaded status.json for {updated} candidate node(s).\n"
+                f"Updated good_to_train on {changed_good} node(s).",
+            )
 
     def _toggle_good_to_train(self, node_id: str):
         if node_id == "root":
@@ -994,7 +1018,6 @@ class DashboardWindow(QtWidgets.QMainWindow):
         if self.candidates_dir:
             folder = _scan_candidate_folders(self.candidates_dir).get(node_id)
             if folder is not None:
-                status_path = folder / "status.json"
                 status = _read_candidate_status(folder)
                 if not status:
                     status = {
@@ -1005,7 +1028,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
                 status["good_to_train"] = next_value
                 status["updated_at"] = datetime.now(timezone.utc).isoformat()
                 try:
-                    status_path.write_text(json.dumps(status, indent=2), encoding="utf-8")
+                    _write_candidate_status(folder, status)
                 except OSError as exc:
                     node["good_to_train"] = not next_value
                     node["selected_for_training"] = (
@@ -1015,7 +1038,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
                     QtWidgets.QMessageBox.critical(
                         self,
                         "Toggle failed",
-                        f"Could not update {status_path}:\n{exc}",
+                        f"Could not update {folder / 'status.json'}:\n{exc}",
                     )
                     return
 
@@ -1069,6 +1092,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
                 "Candidate folder not found for this view, so results cannot be "
                 "synced to disk.")
             return
+        self._load_statuses_from_disk(show_message=False)
 
         root = QtWidgets.QFileDialog.getExistingDirectory(
             self, "Select the folder that contains the trained result folders")
@@ -1150,6 +1174,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
                 self, "Update unavailable",
                 "Candidate folder not found for this view, so rewards cannot be updated.")
             return
+        self._load_statuses_from_disk(show_message=False)
         bad = [
             n["candidate_id"]
             for n in self.data.get("nodes", [])

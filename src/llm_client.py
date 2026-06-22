@@ -46,6 +46,7 @@ class LLMClient:
         if self.dry_run:
             return self._dry_run_response(messages)
 
+        print("\nsending message to LLM: ", len(str(messages)))
         load_dotenv()
         provider = self.current_provider()
         if provider == "anthropic":
@@ -126,11 +127,12 @@ class LLMClient:
 
             client = Anthropic(api_key=api_key)
             request = anthropic_request_payload(messages, self.model, self.temperature, self.max_tokens)
-            for attempt in range(20):
+            for attempt in range(3):
                 try:
                     response = client.messages.create(**request)
                     return anthropic_response_text(response)
-                except Exception:
+                except Exception as e:
+                    print("failed in attempt: ", attempt, "error: ", e)
                     if attempt == 19:
                         raise
                     time.sleep(1)
