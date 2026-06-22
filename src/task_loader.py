@@ -124,10 +124,6 @@ def build_task_context(config: Dict) -> str:
     else:
         sections.append(section("Purpose / Description", config.get("description", "")))
 
-    available_variables = config.get("available_variables", [])
-    if available_variables:
-        sections.append(section("Available Variables", "\n".join(f"- {item}" for item in available_variables)))
-
     return "\n\n".join(part for part in sections if part.strip())
 
 
